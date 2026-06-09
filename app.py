@@ -28,7 +28,7 @@ summary_table = html.Table([
     html.Tr([
         html.Td(
             html.Img(
-                src=get_asset_url("beex_logo.png"),
+                src="/assets/beex_logo.png",
                 style={"height":"40px"}
             )
         ),
@@ -46,7 +46,7 @@ summary_table = html.Table([
     html.Tr([
         html.Td(
             html.Img(
-                src=get_asset_url("iog_logo.png"),
+                src="/assets/iog_logo.png",
                 style={"height":"40px"}
             )
         ),
