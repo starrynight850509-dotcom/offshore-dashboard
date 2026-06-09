@@ -143,7 +143,14 @@ def update_chart(selected_tasks, selected_cats):
 
     filtered["Start"] = filtered["Date"] - pd.Timedelta(hours=12)
     filtered["End"] = filtered["Date"] + pd.Timedelta(hours=12)
-
+    
+    cols = [
+    "Date","Category","Task","Cluster",
+    "Supervisor","Pilot","Tether Manager",
+    "Assistant","Remark"
+    ]
+    filtered[cols] = filtered[cols].fillna("")
+    
     fig = px.timeline(
         filtered,
         x_start="Start",
@@ -151,14 +158,34 @@ def update_chart(selected_tasks, selected_cats):
         y="Task",
         color="Category",
         color_discrete_map=color_map,
-        hover_data={"Start": False,
-                    "End": False,
-                    "Date": True, 
-                    "Category": True, 
-                    "Task": True,
-                    "Remark": True
-                    }
+        custom_data=["Date", 
+                    "Category", 
+                    "Task",
+                    "Cluster",
+                    "Supervisor",
+                    "Pilot",
+                    "Tether Manager",
+                    "Assistant",
+                    "Remark",
+                    "Start",
+                    "End"
+                    ]
     )
+
+    fig.update_traces(
+    hovertemplate=
+    "Date: %{customdata[0]}<br>" +
+    "Category: %{customdata[1]}<br>" +
+    "Task: %{customdata[2]}<br>" +
+    "Cluster: %{customdata[3]}<br>" +
+    "Supervisor: %{customdata[4]}<br>" +
+    "Pilot: %{customdata[5]}<br>" +
+    "Tether Manager: %{customdata[6]}<br>" +
+    "Assistant: %{customdata[7]}<br>" +
+    "Remark: %{customdata[8]}<extra></extra>"
+    )
+    
+    
 
     fig.update_yaxes(autorange="reversed")
 
