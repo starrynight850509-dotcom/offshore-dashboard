@@ -9,26 +9,27 @@ import pandas as pd
 import plotly.express as px
 from dash import Dash, dcc, html, Input, Output
 
-# =========================
+# =============================================================================
 # 1. Load data
-# =========================
+# =============================================================================
 df = pd.read_excel("progress.xlsx")
 df["Date"] = pd.to_datetime(df["Date"])
 
-# =========================
+# =============================================================================
 # 2. Task / Category list
-# =========================
+# =============================================================================
 task_list = df["Task"].unique()
 cat_list = df["Category"].unique()
 
-# =========================
+# =============================================================================
 # 3. App
-# =========================
+# =============================================================================
 app = Dash(__name__)
 
 app.layout = html.Div([
-    html.H2("🌊 Offshore Gantt Monitoring System"),
-
+    ##標題
+    html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection"),
+    ##下拉選單
     html.Div([
         html.Div([
             html.Label("Task Filter"),
@@ -50,24 +51,24 @@ app.layout = html.Div([
             )
         ], style={"width": "48%", "display": "inline-block"})
     ]),
-
+    ##圖表區
     dcc.Graph(id="gantt-chart")
 ])
 
-# =========================
+# =============================================================================
 # 4. Color map
-# =========================
+# =============================================================================
 color_map = {
-    "Inspection": "#1f77b4",
-    "Data Processing": "#2ca02c",
-    "Delay": "#d62728",
-    "Day off": "#000000",
-    "WOW": "#7f7f7f"
+    "Inspection": "#1f77b4",         #藍
+    "Data Processing": "#2ca02c",    #綠
+    "Delay": "#d62728",              #紅
+    "Day off": "#000000",            #黑
+    "WOW": "#7f7f7f"                 #灰
 }
 
-# =========================
+# =============================================================================
 # 5. Callback (dynamic update)
-# =========================
+# =============================================================================
 @app.callback(
     Output("gantt-chart", "figure"),
     Input("task-filter", "value"),
@@ -80,8 +81,8 @@ def update_chart(selected_tasks, selected_cats):
         (df["Category"].isin(selected_cats))
     ]
 
-    filtered["Start"] = filtered["Date"]
-    filtered["End"] = filtered["Date"] + pd.Timedelta(days=1)
+    filtered["Start"] = filtered["Date"] - pd.Timedelta(hours=12)
+    filtered["End"] = filtered["Date"] + pd.Timedelta(hours=12)
 
     fig = px.timeline(
         filtered,
@@ -90,21 +91,27 @@ def update_chart(selected_tasks, selected_cats):
         y="Task",
         color="Category",
         color_discrete_map=color_map,
-        hover_data=["Date", "Category", "Task"]
+        hover_data={"Start": False,
+                    "End": False,
+                    "Date": True, 
+                    "Category": True, 
+                    "Task": True,
+                    "Remark": True
+                    }
     )
 
     fig.update_yaxes(autorange="reversed")
 
     fig.update_layout(
-        title="Offshore Gantt Chart (Live Dashboard)",
+        title="Offshore Gantt Chart",
         height=650
     )
 
     return fig
 
-# =========================
+# =============================================================================
 # 6. Run server
-# =========================
+# =============================================================================
 server = app.server
 
 if __name__ == "__main__":
