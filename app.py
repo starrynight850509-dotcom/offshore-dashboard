@@ -8,7 +8,65 @@ Created on Tue Jun  9 11:19:51 2026
 import pandas as pd
 import plotly.express as px
 from dash import Dash, dcc, html, Input, Output
+from datetime import datetime
+from dash import get_asset_url
+today = datetime.today().date()
 
+beex_start = datetime(2026,4,6).date()
+iog_start  = datetime(2026,4,18).date()
+
+beex_days = (today - beex_start).days
+iog_days = (today - iog_start).days
+
+summary_table = html.Table([
+    html.Tr([
+        html.Th(""),
+        html.Th("Start"),
+        html.Th("Today"),
+        html.Th("Cumulative Days")
+    ]),
+    html.Tr([
+        html.Td(
+            html.Img(
+                src=get_asset_url("beex_logo.png"),
+                style={"height":"40px"}
+            )
+        ),
+        html.Td("2026/4/6"),
+        html.Td(str(today)),
+        html.Td(
+            str(beex_days),
+            style={
+                "color":"red",
+                "fontSize":"30px",
+                "fontWeight":"bold"
+            }
+        )
+    ]),
+    html.Tr([
+        html.Td(
+            html.Img(
+                src=get_asset_url("iog_logo.png"),
+                style={"height":"40px"}
+            )
+        ),
+        html.Td("2026/4/18"),
+        html.Td(str(today)),
+        html.Td(
+            str(iog_days),
+            style={
+                "color":"red",
+                "fontSize":"30px",
+                "fontWeight":"bold"
+            }
+        )
+    ])
+],
+style={
+    "width":"100%",
+    "textAlign":"center",
+    "border":"1px solid black"
+})
 # =============================================================================
 # 1. Load data
 # =============================================================================
@@ -29,6 +87,8 @@ app = Dash(__name__)
 app.layout = html.Div([
     ##標題
     html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection"),
+    summary_table,
+    html.Br(),
     ##下拉選單
     html.Div([
         html.Div([
@@ -120,3 +180,4 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8050
     )
+#http://127.0.0.1:8050/
