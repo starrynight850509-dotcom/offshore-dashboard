@@ -10,8 +10,9 @@ import plotly.express as px
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 from dash import get_asset_url
+from dash import State
 
-
+#%%
 # =============================================================================
 # Load data
 # =============================================================================
@@ -19,11 +20,16 @@ df = pd.read_excel("progress.xlsx")
 df["Date"] = pd.to_datetime(df["Date"])
 df["Start"] = df["Date"] - pd.Timedelta(hours=12)
 df["End"] = df["Date"] + pd.Timedelta(hours=12)
+df["Lane_Type"] = df["Category"].apply(
+    lambda x: "WORK" if x == "Inspection" else "EVENT")
+df["Lane"] = df["Cluster"].astype(str) + " | " + df["Task"]
+#%%
 # =============================================================================
 # Task / Category list
 # =============================================================================
 task_list = df["Task"].unique()
 cat_list = df["Category"].unique()
+#%%
 #==============================================================================
 #Summary Table
 #==============================================================================
@@ -84,6 +90,7 @@ def build_summary_table():
             "borderCollapse":"collapse"
         }
     )
+#%%
 # =============================================================================
 #KPI Dashboard
 # =============================================================================
@@ -132,29 +139,39 @@ def build_card(title, value):
         "margin":"10px",
         "textAlign":"center"
     })
+#%%
 # =============================================================================
 # App
 # =============================================================================
 app = Dash(__name__)
 app.layout = html.Div([
-    ##標題
+    # =========================================================
+    # Title
+    # =========================================================
     html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection"),
-    ##Summery Table
+    # =========================================================
+    # Summary Table
+    # =========================================================
     build_summary_table(),
-    ##KPI Card
+    # =========================================================
+    # KPI Cards
+    # =========================================================
     html.Div(
-    [
-        build_card(title, value)
-        for title, value in kpi_data.items()
-    ],
-    style={
-        "display":"flex",
-        "justifyContent":"center",
-        "flexWrap":"wrap"
-    }
+        [
+            build_card(title, value)
+            for title, value in kpi_data.items()
+        ],
+        style={
+            "display": "flex",
+            "justifyContent": "center",
+            "flexWrap": "wrap"
+        }
     ),
+
     html.Br(),
-    ##下拉選單
+    # =========================================================
+    # Filters
+    # =========================================================
     html.Div([
         html.Div([
             html.Label("Task Filter"),
@@ -165,7 +182,6 @@ app.layout = html.Div([
                 id="task-filter"
             )
         ], style={"width": "48%", "display": "inline-block"}),
-
         html.Div([
             html.Label("Category Filter"),
             dcc.Dropdown(
@@ -176,10 +192,14 @@ app.layout = html.Div([
             )
         ], style={"width": "48%", "display": "inline-block"})
     ]),
-    ##圖表區
-    dcc.Graph(id="gantt-chart")
+    # =========================================================
+    # Chart
+    # =========================================================
+    dcc.Graph(
+        id="gantt-chart"
+    )
 ])
-
+#%%
 # =============================================================================
 # Color map
 # =============================================================================
@@ -190,10 +210,11 @@ color_map = {
     "Day off": "#000000",            #黑
     "WOW": "#7f7f7f"                 #灰
 }
-
+#%%
 # =============================================================================
 # Callback (dynamic update)
 # =============================================================================
+
 @app.callback(
     Output("gantt-chart", "figure"),
     Input("task-filter", "value"),
@@ -201,101 +222,142 @@ color_map = {
 )
 def update_chart(selected_tasks, selected_cats):
 
+    # =========================================================
+    # 1. FILTER
+    # =========================================================
     filtered = df[
         (df["Task"].isin(selected_tasks)) &
         (df["Category"].isin(selected_cats))
     ].copy()
-    
+
+    # =========================================================
+    # 2. 建立 Cluster | Task（⭐核心）
+    # =========================================================
+    def build_label(row):
+        if row["Operation"] == "offshore":
+            return f"Cluster {row['Cluster']} | {row['Task']}"
+        else:
+            return str(row["Category"])
+
+    filtered["Cluster_Task"] = filtered.apply(build_label, axis=1)
+
+    # =========================================================
+    # 3. 建立「無重複順序清單」（修正 Categorical error）
+    # =========================================================
+    ordered_labels = []
+    seen = set()
+
+    # Cluster task
+    for c in sorted(filtered["Cluster"].dropna().unique()):
+        sub = filtered[filtered["Cluster"] == c]
+
+        for task in sub["Task"].dropna().unique():
+            label = f"Cluster {c} | {task}"
+            if label not in seen:
+                ordered_labels.append(label)
+                seen.add(label)
+
+    # EVENT 類別
+    for cat in ["Data Processing", "WOW", "Day off"]:
+        if cat in filtered["Category"].values:
+            if cat not in seen:
+                ordered_labels.append(cat)
+                seen.add(cat)
+
+    # 套用 categorical（✔ 不會再報錯）
+    filtered["Cluster_Task"] = pd.Categorical(
+        filtered["Cluster_Task"],
+        categories=ordered_labels,
+        ordered=True
+    )
+
+    # 排序
+    filtered = filtered.sort_values(["Cluster_Task", "Date"])
+
+    # =========================================================
+    # 4. CLEAN DATA
+    # =========================================================
     cols = [
-    "Date","Category","Task","Cluster",
-    "Supervisor","Pilot","Tether Manager",
-    "Assistant","Remark"
+        "Date","Category","Task","Cluster",
+        "Supervisor","Pilot","Tether Manager",
+        "Assistant","Remark"
     ]
     filtered[cols] = filtered[cols].fillna("")
-    
-    filtered["Date_str"] = (
-    filtered["Date"]
-    .dt.strftime("%Y-%m-%d (%a)")
-    )
-    
+
+    filtered["Date_str"] = filtered["Date"].dt.strftime("%Y-%m-%d (%a)")
+
+    # =========================================================
+    # 5. PLOT
+    # =========================================================
     fig = px.timeline(
         filtered,
         x_start="Start",
         x_end="End",
-        y="Task",
+        y="Cluster_Task",   # ⭐重點
         color="Category",
         color_discrete_map=color_map,
-        custom_data=["Date_str", 
-                    "Category", 
-                    "Task",
-                    "Cluster",
-                    "Supervisor",
-                    "Pilot",
-                    "Tether Manager",
-                    "Assistant",
-                    "Remark",
-                    "Start",
-                    "End"
-                    ]
+        custom_data=[
+            "Date_str",
+            "Category",
+            "Task",
+            "Cluster",
+            "Supervisor",
+            "Pilot",
+            "Tether Manager",
+            "Assistant",
+            "Remark"
+        ]
     )
 
     fig.update_traces(
-    hovertemplate=
-    "Date: %{customdata[0]}<br>" +
-    "Category: %{customdata[1]}<br>" +
-    "Task: %{customdata[2]}<br>" +
-    "Cluster: %{customdata[3]}<br>" +
-    "Supervisor: %{customdata[4]}<br>" +
-    "Pilot: %{customdata[5]}<br>" +
-    "Tether Manager: %{customdata[6]}<br>" +
-    "Assistant: %{customdata[7]}<br>" +
-    "Remark: %{customdata[8]}<extra></extra>"
+        hovertemplate=
+        "Date: %{customdata[0]}<br>" +
+        "Category: %{customdata[1]}<br>" +
+        "Task: %{customdata[2]}<br>" +
+        "Cluster: %{customdata[3]}<br>" +
+        "Supervisor: %{customdata[4]}<br>" +
+        "Pilot: %{customdata[5]}<br>" +
+        "Tether Manager: %{customdata[6]}<br>" +
+        "Assistant: %{customdata[7]}<br>" +
+        "Remark: %{customdata[8]}<extra></extra>"
     )
-    
-    fig.update_yaxes(autorange="reversed")
-    ##today line
-    today_line = pd.Timestamp.now()
+
+    # =========================================================
+    # 6. TODAY LINE
+    # =========================================================
+    now = pd.Timestamp.now()
+
     fig.add_shape(
-    type="line",
-    x0=today_line,
-    x1=today_line,
-    y0=0,
-    y1=1,
-    yref="paper",
-    line=dict(
-        color="red",
-        width=3,
-        dash="dash"
+        type="line",
+        x0=now,
+        x1=now,
+        y0=0,
+        y1=1,
+        yref="paper",
+        line=dict(color="red", width=3, dash="dash")
     )
-    )
+
     fig.add_annotation(
-    x=today_line,
-    y=1.03,
-    yref="paper",
-    text="Today",
-    showarrow=False,
-    font=dict(
-        size=14,
-        color="red"
+        x=now,
+        y=1.03,
+        yref="paper",
+        text="Today",
+        showarrow=False,
+        font=dict(size=14, color="red")
     )
-    )
-    ##chart height control
-    task_count = filtered["Task"].nunique()
-    chart_height = min(
-    max(650, task_count * 40),
-    1200
-    )
-    
+
+    # =========================================================
+    # 7. HEIGHT
+    # =========================================================
     fig.update_layout(
         title="Offshore Gantt Chart",
-        height=chart_height,
-        xaxis=dict(
-            rangeslider=dict(
-                visible=True
-            )
-        )        
+        height=min(max(500, len(filtered) * 35), 600),
+        xaxis=dict(rangeslider=dict(visible=True))
     )
+
     return fig
+
+#%%
 # =============================================================================
 # Run server
 # =============================================================================
