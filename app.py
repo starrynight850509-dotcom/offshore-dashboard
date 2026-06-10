@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Jun  9 11:19:51 2026
+Created on Wed Jun 10 15:42:24 2026
 
 @author: ali.chang
 """
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 from dash import get_asset_url
-from dash import State
+
 
 #%%Load data
 df = pd.read_excel("progress.xlsx")
@@ -21,6 +23,18 @@ df["Lane_Type"] = df["Operation"].apply(lambda x: "WORK" if x == "offshore" else
 df["Cluster"] = (pd.to_numeric(df["Cluster"], errors="coerce"))
 df["Lane"] = (df["Cluster"].apply(lambda x: str(int(x)) if pd.notna(x) else "NoCluster")+
               " | " +df["Task"].fillna("").astype(str))
+df["Progress"] = (
+    df["Progress"]
+    .astype(str)
+    .str.replace("%", "", regex=False)
+)
+df["Progress"] = pd.to_numeric(df["Progress"], errors="coerce").fillna(0)
+
+
+# print(df["Progress"].describe())
+# print(df["Progress"].head(10))
+
+
 #%%Task / Category list
 task_list = df["Task"].unique()
 cat_list = df["Category"].unique()
@@ -115,49 +129,104 @@ def build_card(title, value):
 #%%App
 
 app = Dash(__name__)
+
 app.layout = html.Div([
-    # Title
-    html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection"),
-    # Summary Table
-    build_summary_table(),
-    # KPI Cards
-    html.Div(
-        [
-            build_card(title, value)
-            for title, value in kpi_data.items()
-        ],
-        style={
-            "display": "flex",
-            "justifyContent": "center",
-            "flexWrap": "wrap"
-        }
-    ),
-    html.Br(),
-    # Filters
+
+    # =========================================================
+    # 1. HEADER (工程系統標題)
+    # =========================================================
     html.Div([
+        html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
+                style={"marginBottom": "5px"}),
+
+        html.Div("Engineering Scheduling & Progress Tracking System",
+                 style={"color": "gray", "fontSize": "14px"})
+    ], style={"textAlign": "center", "marginBottom": "10px"}),
+
+    # =========================================================
+    # 2. SUMMARY TABLE + KPI (控制面板區)
+    # =========================================================
+    html.Div([
+
+        # Summary Table
+        build_summary_table(),
+
+        # KPI Cards
+        html.Div(
+            [
+                build_card(title, value)
+                for title, value in kpi_data.items()
+            ],
+            style={
+                "display": "flex",
+                "justifyContent": "center",
+                "flexWrap": "wrap",
+                "gap": "10px",
+                "marginTop": "10px"
+            }
+        )
+
+    ], style={
+        "backgroundColor": "#f9f9f9",
+        "padding": "10px",
+        "borderRadius": "8px",
+        "marginBottom": "10px"
+    }),
+
+    # =========================================================
+    # 3. TOOLBAR (工程 Filter 列)
+    # =========================================================
+    html.Div([
+
         html.Div([
-            html.Label("Task Filter"),
+            html.Label("Task Filter", style={"fontWeight": "bold"}),
             dcc.Dropdown(
                 task_list,
                 value=list(task_list),
                 multi=True,
                 id="task-filter"
             )
-        ], style={"width": "48%", "display": "inline-block"}),
+        ], style={"width": "49%", "display": "inline-block"}),
+
         html.Div([
-            html.Label("Category Filter"),
+            html.Label("Category Filter", style={"fontWeight": "bold"}),
             dcc.Dropdown(
                 cat_list,
                 value=list(cat_list),
                 multi=True,
                 id="cat-filter"
             )
-        ], style={"width": "48%", "display": "inline-block"})
-    ]),
-    # Chart
-    dcc.Graph(
-        id="gantt-chart"
-    )
+        ], style={"width": "49%", "display": "inline-block"})
+
+    ], style={
+        "marginBottom": "10px",
+        "padding": "10px",
+        "backgroundColor": "white",
+        "border": "1px solid #ddd",
+        "borderRadius": "6px"
+    }),
+
+    # =========================================================
+    # 4. GANTT VIEWER (主工程區)
+    # =========================================================
+    html.Div([
+
+        dcc.Graph(
+            id="gantt-chart",
+            config={
+                "displaylogo": False,
+                "scrollZoom": True,
+                "doubleClick": "reset"
+            }
+        )
+
+    ], style={
+        "backgroundColor": "white",
+        "border": "1px solid #ddd",
+        "borderRadius": "6px",
+        "padding": "5px"
+    })
+
 ])
 #%%Color map
 color_map = {
@@ -176,12 +245,20 @@ color_map = {
 def update_chart(selected_tasks, selected_cats):
 
     # =========================================================
+    # 0. SAFE DEFAULTS
+    # =========================================================
+    selected_tasks = selected_tasks or df["Task"].unique()
+    selected_cats = selected_cats or df["Category"].unique()
+
+    now = pd.Timestamp.now()
+
+    # =========================================================
     # 1. FILTER
     # =========================================================
-    filtered = df[
+    filtered = df.loc[
         (df["Task"].isin(selected_tasks)) &
         (df["Category"].isin(selected_cats))
-    ].copy().reset_index(drop=True)
+    ].copy()
 
     # =========================================================
     # 2. CLEAN DATA
@@ -189,42 +266,61 @@ def update_chart(selected_tasks, selected_cats):
     filtered["Cluster"] = pd.to_numeric(filtered["Cluster"], errors="coerce")
     filtered["Date_str"] = filtered["Date"].dt.strftime("%Y-%m-%d (%a)")
 
-    # =========================================================
-    # 3. ENGINEERING LANE STRUCTURE
-    # =========================================================
-    def lane(row):
-        if pd.notna(row["Cluster"]):
-            return f"Cluster {int(row['Cluster'])} | {row['Task']}"
-        return f"{row['Category']} | {row['Task']}"
+    filtered["Progress"] = pd.to_numeric(filtered["Progress"], errors="coerce").fillna(0)
 
-    filtered["Lane"] = filtered.apply(lane, axis=1)
+    if filtered["Progress"].dropna().max() <= 1:
+        filtered["Progress"] = filtered["Progress"] * 100
+
+    filtered["Progress"] = filtered["Progress"].round(0).astype(int)
 
     # =========================================================
-    # 4. ENGINEERING ORDERING (stable + deterministic)
+    # 3. LANE
     # =========================================================
-    cluster_order = sorted(filtered["Cluster"].dropna().unique())
+    filtered["Lane"] = np.where(
+        filtered["Cluster"].notna(),
+        "Cluster " + filtered["Cluster"].astype("Int64").astype(str) + " | " + filtered["Task"],
+        filtered["Category"] + " | " + filtered["Task"]
+    )
 
-    lane_order = []
+    # =========================================================
+    # 4. ORDERING
+    # =========================================================
+    filtered = filtered.sort_values(["Lane", "Start"], na_position="last")
 
-    # Cluster first (engineering grouping)
-    for c in cluster_order:
-        tasks = filtered.loc[filtered["Cluster"] == c, "Task"].dropna().unique()
-        for t in tasks:
-            lane_order.append(f"Cluster {int(c)} | {t}")
-
-    # Event section (fixed order)
-    event_order = ["Inspection", "Data Processing", "WOW", "Day off"]
-
-    for e in event_order:
-        tasks = filtered.loc[filtered["Category"] == e, "Task"].dropna().unique()
-        for t in tasks:
-            lane_order.append(f"{e} | {t}")
+    lane_order = (
+        filtered.sort_values(["Lane", "Start"], na_position="last")["Lane"]
+        .drop_duplicates()
+        .tolist()
+    )
 
     filtered["Lane"] = pd.Categorical(filtered["Lane"], categories=lane_order, ordered=True)
-    filtered = filtered.sort_values(["Lane", "Start"])
 
     # =========================================================
-    # 5. HOVER CLEAN (engineering style)
+    # 5. CLOSEST TASK PROGRESS PER LANE (⭐ NEW FEATURE)
+    # =========================================================
+    def closest_task(group):
+        group = group.copy()
+        group["time_dist"] = (group["Start"] - now).abs()
+        return group.loc[group["time_dist"].idxmin()]
+
+    lane_summary = (
+        filtered.groupby("Lane", observed=True)
+        .apply(closest_task)
+        .reset_index(drop=True)
+    )
+
+    lane_progress_map = dict(zip(
+        lane_summary["Lane"],
+        lane_summary["Progress"]
+    ))
+
+    ticktext = [
+        f"{lane} ({lane_progress_map.get(lane, 0)}%)"
+        for lane in lane_order
+    ]
+
+    # =========================================================
+    # 6. HOVER DATA
     # =========================================================
     hover_cols = [
         "Date_str",
@@ -235,13 +331,14 @@ def update_chart(selected_tasks, selected_cats):
         "Pilot",
         "Tether Manager",
         "Assistant",
-        "Remark"
+        "Remark",
+        "Progress"
     ]
 
     filtered[hover_cols] = filtered[hover_cols].fillna("")
 
     # =========================================================
-    # 6. GANTT PLOT (engineering style)
+    # 7. GANTT
     # =========================================================
     fig = px.timeline(
         filtered,
@@ -253,15 +350,13 @@ def update_chart(selected_tasks, selected_cats):
         custom_data=hover_cols
     )
 
-    # =========================================================
-    # 7. CLEAN HOVER TEMPLATE (engineering card)
-    # =========================================================
     fig.update_traces(
         hovertemplate=
         "<b>%{customdata[2]}</b><br>"
         "Date: %{customdata[0]}<br>"
         "Category: %{customdata[1]}<br>"
         "Cluster: %{customdata[3]}<br>"
+        "Progress: %{customdata[9]}%<br>"
         "Supervisor: %{customdata[4]}<br>"
         "Pilot: %{customdata[5]}<br>"
         "Tether: %{customdata[6]}<br>"
@@ -271,10 +366,8 @@ def update_chart(selected_tasks, selected_cats):
     )
 
     # =========================================================
-    # 8. ENGINEERING TIMELINE (today reference line)
+    # 8. TODAY LINE
     # =========================================================
-    now = pd.Timestamp.now()
-
     fig.add_shape(
         type="line",
         x0=now,
@@ -287,7 +380,7 @@ def update_chart(selected_tasks, selected_cats):
 
     fig.add_annotation(
         x=now,
-        y=1.04,
+        y=1.02,
         yref="paper",
         text="TODAY",
         showarrow=False,
@@ -295,29 +388,30 @@ def update_chart(selected_tasks, selected_cats):
     )
 
     # =========================================================
-    # 9. ENGINEERING LAYOUT
+    # 9. LAYOUT (UPDATED Y LABELS ⭐)
     # =========================================================
     fig.update_layout(
-        title="Engineering Gantt Dashboard",
+        title="Engineering Operations Scheduling Gantt Chart",
         height=min(max(500, len(filtered) * 25), 600),
-        margin=dict(l=180, r=30, t=60, b=40),
-        dragmode="pan",  # engineering mode default
-        xaxis=dict(
-            type="date",
-            rangeslider=dict(visible=True),
-        ),
-        yaxis=dict(
-            autorange="reversed"  # MS Project style
-        ),
-        hoverlabel=dict(
-            bgcolor="white",
-            font_size=12,
-            font_family="Arial"
-        )
+        margin=dict(l=240, r=30, t=60, b=40),
+        dragmode="pan",
+        # dragmode="zoom",
+        hoverlabel=dict(bgcolor="white", font_size=12)
+    )
+
+    # fig.update_xaxes(
+    #     type="date",
+    #     rangeslider=dict(visible=True)
+    # )
+
+    fig.update_yaxes(
+        autorange="reversed",
+        tickmode="array",
+        tickvals=lane_order,
+        ticktext=ticktext
     )
 
     return fig
-
 #%%Run server
 
 server = app.server
