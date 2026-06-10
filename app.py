@@ -12,39 +12,26 @@ from datetime import datetime
 from dash import get_asset_url
 from dash import State
 
-#%%
-# =============================================================================
-# Load data
-# =============================================================================
+#%%Load data
 df = pd.read_excel("progress.xlsx")
 df["Date"] = pd.to_datetime(df["Date"])
 df["Start"] = df["Date"] - pd.Timedelta(hours=12)
 df["End"] = df["Date"] + pd.Timedelta(hours=12)
-df["Lane_Type"] = df["Category"].apply(
-    lambda x: "WORK" if x == "Inspection" else "EVENT")
-df["Lane"] = df["Cluster"].astype(str) + " | " + df["Task"]
-#%%
-# =============================================================================
-# Task / Category list
-# =============================================================================
+df["Lane_Type"] = df["Operation"].apply(lambda x: "WORK" if x == "offshore" else "EVENT")
+df["Cluster"] = (pd.to_numeric(df["Cluster"], errors="coerce"))
+df["Lane"] = (df["Cluster"].apply(lambda x: str(int(x)) if pd.notna(x) else "NoCluster")+
+              " | " +df["Task"].fillna("").astype(str))
+#%%Task / Category list
 task_list = df["Task"].unique()
 cat_list = df["Category"].unique()
-#%%
-#==============================================================================
-#Summary Table
-#==============================================================================
+#%%Summary Table
 projects = [
-    {
-        "name":"BeeX",
-        "logo":"beex_logo.png",
-        "start":datetime(2026,4,6).date()
-    },
-    {
-        "name":"IOG",
-        "logo":"iog_logo.png",
-        "start":datetime(2026,4,18).date()
-    }
-]
+    {"name":"BeeX",
+     "logo":"beex_logo.png",
+     "start":datetime(2026,4,6).date()},
+    {"name":"IOG",
+     "logo":"iog_logo.png",
+     "start":datetime(2026,4,18).date()}]
 
 def build_summary_table():
     today = datetime.today().date()
@@ -56,7 +43,7 @@ def build_summary_table():
                 html.Td(
                     html.Img(
                         src=get_asset_url(p["logo"]),
-                        style={"height":"40px"}
+                        style={"height":"25px"}
                     )
                 ),
                 html.Td(p["name"]),
@@ -66,7 +53,7 @@ def build_summary_table():
                     str(days),
                     style={
                         "color":"red",
-                        "fontSize":"30px",
+                        "fontSize":"25px",
                         "fontWeight":"bold"
                     }
                 )
@@ -90,37 +77,23 @@ def build_summary_table():
             "borderCollapse":"collapse"
         }
     )
-#%%
-# =============================================================================
-#KPI Dashboard
-# =============================================================================
-inspection_days = len(
-    df[df["Category"]=="Inspection"]
-)
-data_days = len(
-    df[df["Category"]=="Data Processing"]
-)
-wow_days = len(
-    df[df["Category"]=="WOW"]
-)
-off_days = len(
-    df[df["Category"]=="Day off"]
-)
-
+#%%KPI Dashboard
+inspection_days = len(df[df["Category"]=="Inspection"])
+data_days = len(df[df["Category"]=="Data Processing"])
+wow_days = len(df[df["Category"]=="WOW"])
+off_days = len(df[df["Category"]=="Day off"])
 kpi_data = {
     "Inspection Days": inspection_days,
     "Data Processing Days": data_days,
     "WOW Days": wow_days,
-    "Day Off Days": off_days
-}
-
+    "Day Off Days": off_days}
 def build_card(title, value):
     return html.Div([
     html.H2(
         value,
         style={
             "margin":"0",
-            "fontSize":"36px",
+            "fontSize":"20px",
             "color":"#1f77b4"
         }
     ),
@@ -139,23 +112,15 @@ def build_card(title, value):
         "margin":"10px",
         "textAlign":"center"
     })
-#%%
-# =============================================================================
-# App
-# =============================================================================
+#%%App
+
 app = Dash(__name__)
 app.layout = html.Div([
-    # =========================================================
     # Title
-    # =========================================================
     html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection"),
-    # =========================================================
     # Summary Table
-    # =========================================================
     build_summary_table(),
-    # =========================================================
     # KPI Cards
-    # =========================================================
     html.Div(
         [
             build_card(title, value)
@@ -167,11 +132,8 @@ app.layout = html.Div([
             "flexWrap": "wrap"
         }
     ),
-
     html.Br(),
-    # =========================================================
     # Filters
-    # =========================================================
     html.Div([
         html.Div([
             html.Label("Task Filter"),
@@ -192,17 +154,12 @@ app.layout = html.Div([
             )
         ], style={"width": "48%", "display": "inline-block"})
     ]),
-    # =========================================================
     # Chart
-    # =========================================================
     dcc.Graph(
         id="gantt-chart"
     )
 ])
-#%%
-# =============================================================================
-# Color map
-# =============================================================================
+#%%Color map
 color_map = {
     "Inspection": "#1f77b4",         #藍
     "Data Processing": "#2ca02c",    #綠
@@ -210,18 +167,13 @@ color_map = {
     "Day off": "#000000",            #黑
     "WOW": "#7f7f7f"                 #灰
 }
-#%%
-# =============================================================================
-# Callback (dynamic update)
-# =============================================================================
-
+#%%Callback (dynamic update)
 @app.callback(
     Output("gantt-chart", "figure"),
     Input("task-filter", "value"),
     Input("cat-filter", "value")
 )
 def update_chart(selected_tasks, selected_cats):
-
     # =========================================================
     # 1. FILTER
     # =========================================================
@@ -231,69 +183,105 @@ def update_chart(selected_tasks, selected_cats):
     ].copy()
 
     # =========================================================
-    # 2. 建立 Cluster | Task（⭐核心）
+    # 2. CLEAN Cluster（統一成 int 或 NaN）
     # =========================================================
-    def build_label(row):
-        if row["Operation"] == "offshore":
-            return f"Cluster {row['Cluster']} | {row['Task']}"
-        else:
-            return str(row["Category"])
-
-    filtered["Cluster_Task"] = filtered.apply(build_label, axis=1)
-
-    # =========================================================
-    # 3. 建立「無重複順序清單」（修正 Categorical error）
-    # =========================================================
-    ordered_labels = []
-    seen = set()
-
-    # Cluster task
-    for c in sorted(filtered["Cluster"].dropna().unique()):
-        sub = filtered[filtered["Cluster"] == c]
-
-        for task in sub["Task"].dropna().unique():
-            label = f"Cluster {c} | {task}"
-            if label not in seen:
-                ordered_labels.append(label)
-                seen.add(label)
-
-    # EVENT 類別
-    for cat in ["Data Processing", "WOW", "Day off"]:
-        if cat in filtered["Category"].values:
-            if cat not in seen:
-                ordered_labels.append(cat)
-                seen.add(cat)
-
-    # 套用 categorical（✔ 不會再報錯）
-    filtered["Cluster_Task"] = pd.Categorical(
-        filtered["Cluster_Task"],
-        categories=ordered_labels,
-        ordered=True
+    filtered["Cluster"] = pd.to_numeric(
+        filtered["Cluster"],
+        errors="coerce"
     )
 
-    # 排序
-    filtered = filtered.sort_values(["Cluster_Task", "Date"])
-
     # =========================================================
-    # 4. CLEAN DATA
+    # 3. Date string（⭐你漏掉的）
     # =========================================================
-    cols = [
-        "Date","Category","Task","Cluster",
-        "Supervisor","Pilot","Tether Manager",
-        "Assistant","Remark"
-    ]
-    filtered[cols] = filtered[cols].fillna("")
-
     filtered["Date_str"] = filtered["Date"].dt.strftime("%Y-%m-%d (%a)")
 
     # =========================================================
-    # 5. PLOT
+    # 4. Lane label（唯一規則）
     # =========================================================
+    def make_label(row):
+
+        if pd.notna(row["Cluster"]):
+            return f"Cluster {int(row['Cluster'])} | {row['Task']}"
+
+        return f"{row['Category']} | {row['Task']}"
+
+    filtered["Lane_label"] = filtered.apply(make_label, axis=1)
+
+    # =========================================================
+    # 5. 排序（Cluster → Task）
+    # =========================================================
+    cluster_order = sorted(
+        filtered["Cluster"].dropna().unique()
+    )
+
+    lane_order = []
+
+    # Cluster group
+    for c in cluster_order:
+
+        tasks = (
+            filtered.loc[
+                filtered["Cluster"] == c,
+                "Task"
+            ]
+            .dropna()
+            .unique()
+        )
+
+        for t in tasks:
+            lane_order.append(f"Cluster {int(c)} | {t}")
+
+    # =========================================================
+    # 6. EVENT group
+    # =========================================================
+    event_order = ["WOW", "Data Processing", "Day off"]
+
+    for e in event_order:
+
+        tasks = (
+            filtered.loc[
+                filtered["Category"] == e,
+                "Task"
+            ]
+            .dropna()
+            .unique()
+        )
+
+        for t in tasks:
+            lane_order.append(f"{e} | {t}")
+
+    # =========================================================
+    # 7. LOCK ORDER
+    # =========================================================
+    filtered["Lane_label"] = pd.Categorical(
+        filtered["Lane_label"],
+        categories=lane_order,
+        ordered=True
+    )
+
+    filtered = filtered.sort_values(["Lane_label", "Date"])
+
+    # =========================================================
+    # 8. PLOT
+    # =========================================================
+    hover_cols = [
+            "Date_str",
+            "Category",
+            "Task",
+            "Cluster",
+            "Supervisor",
+            "Pilot",
+            "Tether Manager",
+            "Assistant",
+            "Remark"
+    ]
+    filtered[hover_cols] = filtered[hover_cols].fillna("")
+    
     fig = px.timeline(
         filtered,
         x_start="Start",
         x_end="End",
-        y="Cluster_Task",   # ⭐重點
+        y="Task",
         color="Category",
         color_discrete_map=color_map,
         custom_data=[
@@ -311,19 +299,20 @@ def update_chart(selected_tasks, selected_cats):
 
     fig.update_traces(
         hovertemplate=
-        "Date: %{customdata[0]}<br>" +
-        "Category: %{customdata[1]}<br>" +
-        "Task: %{customdata[2]}<br>" +
-        "Cluster: %{customdata[3]}<br>" +
-        "Supervisor: %{customdata[4]}<br>" +
-        "Pilot: %{customdata[5]}<br>" +
-        "Tether Manager: %{customdata[6]}<br>" +
-        "Assistant: %{customdata[7]}<br>" +
-        "Remark: %{customdata[8]}<extra></extra>"
+        "Date: %{customdata[0]}<br>"
+        "Category: %{customdata[1]}<br>"
+        "Task: %{customdata[2]}<br>"
+        "Cluster: %{customdata[3]}<br>"
+        "Supervisor: %{customdata[4]}<br>"
+        "Pilot: %{customdata[5]}<br>"
+        "Tether Manager: %{customdata[6]}<br>"
+        "Assistant: %{customdata[7]}<br>"
+        "Remark: %{customdata[8]}"
+        "<extra></extra>"
     )
 
     # =========================================================
-    # 6. TODAY LINE
+    # 9. TODAY LINE
     # =========================================================
     now = pd.Timestamp.now()
 
@@ -342,25 +331,22 @@ def update_chart(selected_tasks, selected_cats):
         y=1.03,
         yref="paper",
         text="Today",
-        showarrow=False,
-        font=dict(size=14, color="red")
+        showarrow=False
     )
 
     # =========================================================
-    # 7. HEIGHT
+    # 10. HEIGHT
     # =========================================================
     fig.update_layout(
         title="Offshore Gantt Chart",
-        height=min(max(500, len(filtered) * 35), 600),
+        height=min(max(500, len(filtered) * 25), 600),
         xaxis=dict(rangeslider=dict(visible=True))
     )
 
     return fig
 
-#%%
-# =============================================================================
-# Run server
-# =============================================================================
+#%%Run server
+
 server = app.server
 
 if __name__ == "__main__":
