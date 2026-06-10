@@ -174,145 +174,104 @@ color_map = {
     Input("cat-filter", "value")
 )
 def update_chart(selected_tasks, selected_cats):
+
     # =========================================================
     # 1. FILTER
     # =========================================================
     filtered = df[
         (df["Task"].isin(selected_tasks)) &
         (df["Category"].isin(selected_cats))
-    ].copy()
+    ].copy().reset_index(drop=True)
 
     # =========================================================
-    # 2. CLEAN Cluster（統一成 int 或 NaN）
+    # 2. CLEAN DATA
     # =========================================================
-    filtered["Cluster"] = pd.to_numeric(
-        filtered["Cluster"],
-        errors="coerce"
-    )
-
-    # =========================================================
-    # 3. Date string（⭐你漏掉的）
-    # =========================================================
+    filtered["Cluster"] = pd.to_numeric(filtered["Cluster"], errors="coerce")
     filtered["Date_str"] = filtered["Date"].dt.strftime("%Y-%m-%d (%a)")
 
     # =========================================================
-    # 4. Lane label（唯一規則）
+    # 3. ENGINEERING LANE STRUCTURE
     # =========================================================
-    def make_label(row):
-
+    def lane(row):
         if pd.notna(row["Cluster"]):
             return f"Cluster {int(row['Cluster'])} | {row['Task']}"
-
         return f"{row['Category']} | {row['Task']}"
 
-    filtered["Lane_label"] = filtered.apply(make_label, axis=1)
+    filtered["Lane"] = filtered.apply(lane, axis=1)
 
     # =========================================================
-    # 5. 排序（Cluster → Task）
+    # 4. ENGINEERING ORDERING (stable + deterministic)
     # =========================================================
-    cluster_order = sorted(
-        filtered["Cluster"].dropna().unique()
-    )
+    cluster_order = sorted(filtered["Cluster"].dropna().unique())
 
     lane_order = []
 
-    # Cluster group
+    # Cluster first (engineering grouping)
     for c in cluster_order:
-
-        tasks = (
-            filtered.loc[
-                filtered["Cluster"] == c,
-                "Task"
-            ]
-            .dropna()
-            .unique()
-        )
-
+        tasks = filtered.loc[filtered["Cluster"] == c, "Task"].dropna().unique()
         for t in tasks:
             lane_order.append(f"Cluster {int(c)} | {t}")
 
-    # =========================================================
-    # 6. EVENT group
-    # =========================================================
-    event_order = ["WOW", "Data Processing", "Day off"]
+    # Event section (fixed order)
+    event_order = ["Inspection", "Data Processing", "WOW", "Day off"]
 
     for e in event_order:
-
-        tasks = (
-            filtered.loc[
-                filtered["Category"] == e,
-                "Task"
-            ]
-            .dropna()
-            .unique()
-        )
-
+        tasks = filtered.loc[filtered["Category"] == e, "Task"].dropna().unique()
         for t in tasks:
             lane_order.append(f"{e} | {t}")
 
-    # =========================================================
-    # 7. LOCK ORDER
-    # =========================================================
-    filtered["Lane_label"] = pd.Categorical(
-        filtered["Lane_label"],
-        categories=lane_order,
-        ordered=True
-    )
-
-    filtered = filtered.sort_values(["Lane_label", "Date"])
+    filtered["Lane"] = pd.Categorical(filtered["Lane"], categories=lane_order, ordered=True)
+    filtered = filtered.sort_values(["Lane", "Start"])
 
     # =========================================================
-    # 8. PLOT
+    # 5. HOVER CLEAN (engineering style)
     # =========================================================
     hover_cols = [
-            "Date_str",
-            "Category",
-            "Task",
-            "Cluster",
-            "Supervisor",
-            "Pilot",
-            "Tether Manager",
-            "Assistant",
-            "Remark"
+        "Date_str",
+        "Category",
+        "Task",
+        "Cluster",
+        "Supervisor",
+        "Pilot",
+        "Tether Manager",
+        "Assistant",
+        "Remark"
     ]
+
     filtered[hover_cols] = filtered[hover_cols].fillna("")
-    
+
+    # =========================================================
+    # 6. GANTT PLOT (engineering style)
+    # =========================================================
     fig = px.timeline(
         filtered,
         x_start="Start",
         x_end="End",
-        y="Task",
+        y="Lane",
         color="Category",
         color_discrete_map=color_map,
-        custom_data=[
-            "Date_str",
-            "Category",
-            "Task",
-            "Cluster",
-            "Supervisor",
-            "Pilot",
-            "Tether Manager",
-            "Assistant",
-            "Remark"
-        ]
+        custom_data=hover_cols
     )
 
+    # =========================================================
+    # 7. CLEAN HOVER TEMPLATE (engineering card)
+    # =========================================================
     fig.update_traces(
         hovertemplate=
+        "<b>%{customdata[2]}</b><br>"
         "Date: %{customdata[0]}<br>"
         "Category: %{customdata[1]}<br>"
-        "Task: %{customdata[2]}<br>"
         "Cluster: %{customdata[3]}<br>"
         "Supervisor: %{customdata[4]}<br>"
         "Pilot: %{customdata[5]}<br>"
-        "Tether Manager: %{customdata[6]}<br>"
+        "Tether: %{customdata[6]}<br>"
         "Assistant: %{customdata[7]}<br>"
-        "Remark: %{customdata[8]}"
+        "Note: %{customdata[8]}"
         "<extra></extra>"
     )
 
     # =========================================================
-    # 9. TODAY LINE
+    # 8. ENGINEERING TIMELINE (today reference line)
     # =========================================================
     now = pd.Timestamp.now()
 
@@ -323,24 +282,38 @@ def update_chart(selected_tasks, selected_cats):
         y0=0,
         y1=1,
         yref="paper",
-        line=dict(color="red", width=3, dash="dash")
+        line=dict(color="red", width=2, dash="dash")
     )
 
     fig.add_annotation(
         x=now,
-        y=1.03,
+        y=1.04,
         yref="paper",
-        text="Today",
-        showarrow=False
+        text="TODAY",
+        showarrow=False,
+        font=dict(color="red")
     )
 
     # =========================================================
-    # 10. HEIGHT
+    # 9. ENGINEERING LAYOUT
     # =========================================================
     fig.update_layout(
-        title="Offshore Gantt Chart",
+        title="Engineering Gantt Dashboard",
         height=min(max(500, len(filtered) * 25), 600),
-        xaxis=dict(rangeslider=dict(visible=True))
+        margin=dict(l=180, r=30, t=60, b=40),
+        dragmode="pan",  # engineering mode default
+        xaxis=dict(
+            type="date",
+            rangeslider=dict(visible=True),
+        ),
+        yaxis=dict(
+            autorange="reversed"  # MS Project style
+        ),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Arial"
+        )
     )
 
     return fig
