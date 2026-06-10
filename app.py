@@ -303,11 +303,11 @@ def update_chart(selected_tasks, selected_cats):
         group["time_dist"] = (group["Start"] - now).abs()
         return group.loc[group["time_dist"].idxmin()]
 
-    lane_summary = (
-        filtered.groupby("Lane", observed=True)
-        .apply(closest_task)
-        .reset_index(drop=True)
-    )
+    filtered["time_dist"] = (filtered["Start"] - now).abs()
+
+    lane_summary = filtered.loc[
+        filtered.groupby("Lane")["time_dist"].idxmin()
+    ]
 
     lane_progress_map = dict(zip(
         lane_summary["Lane"],
@@ -392,7 +392,7 @@ def update_chart(selected_tasks, selected_cats):
     # =========================================================
     fig.update_layout(
         title="Engineering Operations Scheduling Gantt Chart",
-        height=min(max(500, len(filtered) * 25), 600),
+        height=min(max(650, len(filtered) * 25), 650),
         margin=dict(l=240, r=30, t=60, b=40),
         dragmode="pan",
         # dragmode="zoom",
