@@ -37,7 +37,7 @@ def build_summary_table():
     today = datetime.today().date()
     rows = []
     for p in projects:
-        days = (today - p["start"]).days
+        days = (today - p["start"]).days + 1
         rows.append(
             html.Tr([
                 html.Td(
