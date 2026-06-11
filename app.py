@@ -260,32 +260,16 @@ def update_chart(selected_tasks, selected_cats):
     # =========================================================
     # 2. CLEAN DATA
     # =========================================================
-    filtered["Cluster"] = pd.to_numeric(
-        filtered["Cluster"],
-        errors="coerce"
-    )
+    filtered["Cluster"] = pd.to_numeric(filtered["Cluster"], errors="coerce")
 
-    filtered["Date_str"] = (
-        filtered["Date"]
-        .dt.strftime("%Y-%m-%d (%a)")
-    )
+    filtered["Date_str"] = filtered["Date"].dt.strftime("%Y-%m-%d (%a)")
 
-    filtered["Progress"] = (
-        pd.to_numeric(
-            filtered["Progress"],
-            errors="coerce"
-        )
-        .fillna(0)
-    )
+    filtered["Progress"] = pd.to_numeric(filtered["Progress"], errors="coerce").fillna(0)
 
     if filtered["Progress"].max() <= 1:
         filtered["Progress"] *= 100
 
-    filtered["Progress"] = (
-        filtered["Progress"]
-        .round()
-        .astype(int)
-    )
+    filtered["Progress"] = filtered["Progress"].round().astype(int)
 
     # =========================================================
     # 3. LANE
@@ -296,29 +280,20 @@ def update_chart(selected_tasks, selected_cats):
         + filtered["Cluster"].astype("Int64").astype(str)
         + " | "
         + filtered["Task"],
-        filtered["Category"]
-        + " | "
-        + filtered["Task"]
+        filtered["Category"] + " | " + filtered["Task"]
     )
 
     # =========================================================
     # 4. ORDERING
     # =========================================================
-    filtered["_cluster_sort"] = (
-        filtered["Cluster"]
-        .fillna(999)
-    )
+    filtered["_cluster_sort"] = filtered["Cluster"].fillna(999)
 
     filtered = filtered.sort_values(
         ["_cluster_sort", "Task", "Start"],
         na_position="last"
     )
 
-    lane_order = (
-        filtered["Lane"]
-        .drop_duplicates()
-        .tolist()
-    )
+    lane_order = filtered["Lane"].drop_duplicates().tolist()
 
     filtered["Lane"] = pd.Categorical(
         filtered["Lane"],
@@ -339,11 +314,7 @@ def update_chart(selected_tasks, selected_cats):
 
     lane_summary = filtered.loc[idx]
 
-    lane_progress_map = (
-        lane_summary
-        .set_index("Lane")["Progress"]
-        .to_dict()
-    )
+    lane_progress_map = lane_summary.set_index("Lane")["Progress"].to_dict()
 
     ticktext = [
         f"{lane} ({lane_progress_map.get(lane,0)}%)"
@@ -351,26 +322,31 @@ def update_chart(selected_tasks, selected_cats):
     ]
 
     # =========================================================
-    # 6. HOVER DATA
+    # 6. HOVER DATA (FIXED - NO DTYPE WARNING)
     # =========================================================
+    filtered["Cluster_hover"] = np.where(
+        filtered["Cluster"].notna(),
+        filtered["Cluster"].astype("Int64").astype(str),
+        ""
+    )
+
+    filtered["Progress_hover"] = filtered["Progress"].astype(str)
+
+    for col in ["Supervisor", "Pilot", "Tether Manager", "Assistant", "Remark"]:
+        filtered[col] = filtered[col].fillna("")
+
     hover_cols = [
         "Date_str",
         "Category",
         "Task",
-        "Cluster",
+        "Cluster_hover",
         "Supervisor",
         "Pilot",
         "Tether Manager",
         "Assistant",
         "Remark",
-        "Progress"
+        "Progress_hover"
     ]
-
-    filtered.loc[:, hover_cols] = (
-        filtered[hover_cols]
-        .fillna("")
-        .astype(str)
-    )
 
     # =========================================================
     # 7. GANTT
@@ -410,50 +386,38 @@ def update_chart(selected_tasks, selected_cats):
         y0=0,
         y1=1,
         yref="paper",
-        line=dict(
-            color="red",
-            width=2,
-            dash="dash"
-        )
+        line=dict(color="red", width=2, dash="dash")
     )
 
     fig.add_annotation(
-    x=now,
-    y=1.04,
-    yref="paper",
-    text=(
-        f"<b>TODAY</b><br>"
-        f"{now.strftime('%Y-%m-%d %H:%M')}"
-    ),
-    showarrow=False,
-    font=dict(
-        color="red",
-        size=12
-    ),
-    bgcolor="rgba(255,255,255,0.8)",
-    bordercolor="red",
-    borderwidth=1
+        x=now,
+        y=1.02,
+        yref="paper",
+        text=(
+            f"<b>TODAY</b><br>"
+            f"{now.strftime('%Y-%m-%d %H:%M')}"
+        ),
+        showarrow=False,
+        font=dict(color="red", size=12),
+        bgcolor="rgba(255,255,255,0.85)",
+        bordercolor="red",
+        borderwidth=1
     )
 
     # =========================================================
     # 9. LAYOUT
     # =========================================================
-    chart_height = min(max(600, len(lane_order) * 20),650)
+    chart_height = min(
+        max(650, len(lane_order) * 30),
+        1600
+    )
 
     fig.update_layout(
         title="Engineering Operations Scheduling Gantt Chart",
         height=chart_height,
-        margin=dict(
-            l=240,
-            r=30,
-            t=60,
-            b=40
-        ),
+        margin=dict(l=240, r=30, t=60, b=40),
         dragmode="pan",
-        hoverlabel=dict(
-            bgcolor="white",
-            font_size=12
-        )
+        hoverlabel=dict(bgcolor="white", font_size=12)
     )
 
     fig.update_yaxes(
