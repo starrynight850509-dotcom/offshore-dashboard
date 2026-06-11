@@ -90,7 +90,7 @@ def build_summary_table():
 #%%KPI Dashboard
 inspection_days = len(df[df["Category"]=="Inspection"])
 data_days = len(df[df["Category"]=="Data Processing"])
-wow_days = len(df[df["Category"]=="WOW"])
+wow_days = len(df[df["Category"]=="WOW(offshore)"]) + len(df[df["Category"]=="WOW(onshore)"])
 off_days = len(df[df["Category"]=="Day off"])
 kpi_data = {
     "Inspection Days": inspection_days,
