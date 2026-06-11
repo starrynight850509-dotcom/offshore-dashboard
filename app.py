@@ -438,10 +438,7 @@ def update_chart(selected_tasks, selected_cats):
     # =========================================================
     # 9. LAYOUT
     # =========================================================
-    chart_height = min(
-        max(650, len(lane_order) * 35),
-        1600
-    )
+    chart_height = min(max(600, len(lane_order) * 20),650)
 
     fig.update_layout(
         title="Engineering Operations Scheduling Gantt Chart",
