@@ -23,11 +23,7 @@ df["Lane_Type"] = df["Operation"].apply(lambda x: "WORK" if x == "offshore" else
 df["Cluster"] = (pd.to_numeric(df["Cluster"], errors="coerce"))
 df["Lane"] = (df["Cluster"].apply(lambda x: str(int(x)) if pd.notna(x) else "NoCluster")+
               " | " +df["Task"].fillna("").astype(str))
-df["Progress"] = (
-    df["Progress"]
-    .astype(str)
-    .str.replace("%", "", regex=False)
-)
+df["Progress"] = (df["Progress"].astype(str).str.replace("%", "", regex=False))
 df["Progress"] = pd.to_numeric(df["Progress"], errors="coerce").fillna(0)
 
 
@@ -232,9 +228,10 @@ app.layout = html.Div([
 color_map = {
     "Inspection": "#1f77b4",         #藍
     "Data Processing": "#2ca02c",    #綠
-    "Delay": "#d62728",              #紅
+    "WOW(offshore)": "#d62728",       #紅
     "Day off": "#000000",            #黑
-    "WOW": "#7f7f7f"                 #灰
+    "WOW(onshore)": "#7f7f7f"        #灰
+    
 }
 #%%Callback (dynamic update)
 @app.callback(
@@ -263,59 +260,93 @@ def update_chart(selected_tasks, selected_cats):
     # =========================================================
     # 2. CLEAN DATA
     # =========================================================
-    filtered["Cluster"] = pd.to_numeric(filtered["Cluster"], errors="coerce")
-    filtered["Date_str"] = filtered["Date"].dt.strftime("%Y-%m-%d (%a)")
+    filtered["Cluster"] = pd.to_numeric(
+        filtered["Cluster"],
+        errors="coerce"
+    )
 
-    filtered["Progress"] = pd.to_numeric(filtered["Progress"], errors="coerce").fillna(0)
+    filtered["Date_str"] = (
+        filtered["Date"]
+        .dt.strftime("%Y-%m-%d (%a)")
+    )
 
-    if filtered["Progress"].dropna().max() <= 1:
-        filtered["Progress"] = filtered["Progress"] * 100
+    filtered["Progress"] = (
+        pd.to_numeric(
+            filtered["Progress"],
+            errors="coerce"
+        )
+        .fillna(0)
+    )
 
-    filtered["Progress"] = filtered["Progress"].round(0).astype(int)
+    if filtered["Progress"].max() <= 1:
+        filtered["Progress"] *= 100
+
+    filtered["Progress"] = (
+        filtered["Progress"]
+        .round()
+        .astype(int)
+    )
 
     # =========================================================
     # 3. LANE
     # =========================================================
     filtered["Lane"] = np.where(
         filtered["Cluster"].notna(),
-        "Cluster " + filtered["Cluster"].astype("Int64").astype(str) + " | " + filtered["Task"],
-        filtered["Category"] + " | " + filtered["Task"]
+        "Cluster "
+        + filtered["Cluster"].astype("Int64").astype(str)
+        + " | "
+        + filtered["Task"],
+        filtered["Category"]
+        + " | "
+        + filtered["Task"]
     )
 
     # =========================================================
     # 4. ORDERING
     # =========================================================
-    filtered = filtered.sort_values(["Lane", "Start"], na_position="last")
+    filtered["_cluster_sort"] = (
+        filtered["Cluster"]
+        .fillna(999)
+    )
+
+    filtered = filtered.sort_values(
+        ["_cluster_sort", "Task", "Start"],
+        na_position="last"
+    )
 
     lane_order = (
-        filtered.sort_values(["Lane", "Start"], na_position="last")["Lane"]
+        filtered["Lane"]
         .drop_duplicates()
         .tolist()
     )
 
-    filtered["Lane"] = pd.Categorical(filtered["Lane"], categories=lane_order, ordered=True)
+    filtered["Lane"] = pd.Categorical(
+        filtered["Lane"],
+        categories=lane_order,
+        ordered=True
+    )
 
     # =========================================================
-    # 5. CLOSEST TASK PROGRESS PER LANE (⭐ NEW FEATURE)
+    # 5. LANE PROGRESS
     # =========================================================
-    def closest_task(group):
-        group = group.copy()
-        group["time_dist"] = (group["Start"] - now).abs()
-        return group.loc[group["time_dist"].idxmin()]
+    idx = (
+        filtered["Start"]
+        .sub(now)
+        .abs()
+        .groupby(filtered["Lane"])
+        .idxmin()
+    )
 
-    filtered["time_dist"] = (filtered["Start"] - now).abs()
+    lane_summary = filtered.loc[idx]
 
-    lane_summary = filtered.loc[
-        filtered.groupby("Lane")["time_dist"].idxmin()
-    ]
-
-    lane_progress_map = dict(zip(
-        lane_summary["Lane"],
-        lane_summary["Progress"]
-    ))
+    lane_progress_map = (
+        lane_summary
+        .set_index("Lane")["Progress"]
+        .to_dict()
+    )
 
     ticktext = [
-        f"{lane} ({lane_progress_map.get(lane, 0)}%)"
+        f"{lane} ({lane_progress_map.get(lane,0)}%)"
         for lane in lane_order
     ]
 
@@ -335,7 +366,11 @@ def update_chart(selected_tasks, selected_cats):
         "Progress"
     ]
 
-    filtered[hover_cols] = filtered[hover_cols].fillna("")
+    filtered.loc[:, hover_cols] = (
+        filtered[hover_cols]
+        .fillna("")
+        .astype(str)
+    )
 
     # =========================================================
     # 7. GANTT
@@ -375,34 +410,54 @@ def update_chart(selected_tasks, selected_cats):
         y0=0,
         y1=1,
         yref="paper",
-        line=dict(color="red", width=2, dash="dash")
+        line=dict(
+            color="red",
+            width=2,
+            dash="dash"
+        )
     )
 
     fig.add_annotation(
-        x=now,
-        y=1.02,
-        yref="paper",
-        text="TODAY",
-        showarrow=False,
-        font=dict(color="red")
+    x=now,
+    y=1.04,
+    yref="paper",
+    text=(
+        f"<b>TODAY</b><br>"
+        f"{now.strftime('%Y-%m-%d %H:%M')}"
+    ),
+    showarrow=False,
+    font=dict(
+        color="red",
+        size=12
+    ),
+    bgcolor="rgba(255,255,255,0.8)",
+    bordercolor="red",
+    borderwidth=1
     )
 
     # =========================================================
-    # 9. LAYOUT (UPDATED Y LABELS ⭐)
+    # 9. LAYOUT
     # =========================================================
+    chart_height = min(
+        max(650, len(lane_order) * 35),
+        1600
+    )
+
     fig.update_layout(
         title="Engineering Operations Scheduling Gantt Chart",
-        height=min(max(650, len(filtered) * 25), 650),
-        margin=dict(l=240, r=30, t=60, b=40),
+        height=chart_height,
+        margin=dict(
+            l=240,
+            r=30,
+            t=60,
+            b=40
+        ),
         dragmode="pan",
-        # dragmode="zoom",
-        hoverlabel=dict(bgcolor="white", font_size=12)
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12
+        )
     )
-
-    # fig.update_xaxes(
-    #     type="date",
-    #     rangeslider=dict(visible=True)
-    # )
 
     fig.update_yaxes(
         autorange="reversed",
