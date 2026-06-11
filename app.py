@@ -247,7 +247,7 @@ def update_chart(selected_tasks, selected_cats):
     selected_tasks = selected_tasks or df["Task"].unique()
     selected_cats = selected_cats or df["Category"].unique()
 
-    now = pd.Timestamp.now()
+    now = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None)
 
     # =========================================================
     # 1. FILTER
