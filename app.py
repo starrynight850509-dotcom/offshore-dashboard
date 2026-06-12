@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jun 10 15:42:24 2026
+Created on Fri Jun 12 10:24:21 2026
 
 @author: ali.chang
 """
@@ -19,21 +19,46 @@ df = pd.read_excel("progress.xlsx")
 df["Date"] = pd.to_datetime(df["Date"])
 df["Start"] = df["Date"] - pd.Timedelta(hours=12)
 df["End"] = df["Date"] + pd.Timedelta(hours=12)
-df["Lane_Type"] = df["Operation"].apply(lambda x: "WORK" if x == "offshore" else "EVENT")
-df["Cluster"] = (pd.to_numeric(df["Cluster"], errors="coerce"))
-df["Lane"] = (df["Cluster"].apply(lambda x: str(int(x)) if pd.notna(x) else "NoCluster")+
-              " | " +df["Task"].fillna("").astype(str))
+# Category dtype (Filter會快很多)
+df["Task"] = df["Task"].astype("category")
+df["Category"] = df["Category"].astype("category")
+# Cluster
+df["Cluster"] = pd.to_numeric(df["Cluster"],errors="coerce")
+# Progress
 df["Progress"] = (df["Progress"].astype(str).str.replace("%", "", regex=False))
-df["Progress"] = pd.to_numeric(df["Progress"], errors="coerce").fillna(0)
-
-
+df["Progress"] = (pd.to_numeric(df["Progress"],errors="coerce").fillna(0))
+if df["Progress"].max() <= 1:
+    df["Progress"] *= 100
+df["Progress"] = (df["Progress"].round().astype(int))
+# Date String
+df["Date_str"] = (df["Date"].dt.strftime("%Y-%m-%d (%a)"))
+# Hover
+df["Cluster_hover"] = np.where(df["Cluster"].notna(),df["Cluster"].astype("Int64").astype(str),"")
+df["Progress_hover"] = (df["Progress"].astype(str))
+# Empty Text
+for col in [
+    "Supervisor",
+    "Pilot",
+    "Tether Manager",
+    "Assistant",
+    "Remark"]:
+    if col in df.columns:
+        df[col] = df[col].fillna("")
+# Lane (預先建立)
+df["Lane"] = np.where(
+    df["Cluster"].notna(),
+    "Cluster "
+    + df["Cluster"].astype("Int64").astype(str)
+    + " | "
+    + df["Task"].astype(str),
+    df["Category"].astype(str)
+    + " | "
+    + df["Task"].astype(str))
 # print(df["Progress"].describe())
 # print(df["Progress"].head(10))
-
-
 #%%Task / Category list
-task_list = df["Task"].unique()
-cat_list = df["Category"].unique()
+task_list = list(df["Task"].unique())
+cat_list = list(df["Category"].unique())
 #%%Summary Table
 projects = [
     {"name":"BeeX",
@@ -42,9 +67,8 @@ projects = [
     {"name":"IOG",
      "logo":"iog_logo.png",
      "start":datetime(2026,4,18).date()}]
-
 def build_summary_table():
-    today = datetime.today().date()
+    today = pd.Timestamp.now(tz="Asia/Taipei").date()
     rows = []
     for p in projects:
         days = (today - p["start"]).days + 1
@@ -125,7 +149,6 @@ def build_card(title, value):
 #%%App
 
 app = Dash(__name__)
-
 app.layout = html.Div([
 
     # =========================================================
@@ -228,7 +251,7 @@ app.layout = html.Div([
 color_map = {
     "Inspection": "#1f77b4",         #藍
     "Data Processing": "#2ca02c",    #綠
-    "WOW(offshore)": "#d62728",       #紅
+    "WOW(offshore)": "#d62728",      #紅
     "Day off": "#000000",            #黑
     "WOW(onshore)": "#7f7f7f"        #灰
     
@@ -244,8 +267,8 @@ def update_chart(selected_tasks, selected_cats):
     # =========================================================
     # 0. SAFE DEFAULTS
     # =========================================================
-    selected_tasks = selected_tasks or df["Task"].unique()
-    selected_cats = selected_cats or df["Category"].unique()
+    selected_tasks = selected_tasks or task_list
+    selected_cats = selected_cats or cat_list
 
     now = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None)
 
@@ -257,31 +280,6 @@ def update_chart(selected_tasks, selected_cats):
         (df["Category"].isin(selected_cats))
     ].copy()
 
-    # =========================================================
-    # 2. CLEAN DATA
-    # =========================================================
-    filtered["Cluster"] = pd.to_numeric(filtered["Cluster"], errors="coerce")
-
-    filtered["Date_str"] = filtered["Date"].dt.strftime("%Y-%m-%d (%a)")
-
-    filtered["Progress"] = pd.to_numeric(filtered["Progress"], errors="coerce").fillna(0)
-
-    if filtered["Progress"].max() <= 1:
-        filtered["Progress"] *= 100
-
-    filtered["Progress"] = filtered["Progress"].round().astype(int)
-
-    # =========================================================
-    # 3. LANE
-    # =========================================================
-    filtered["Lane"] = np.where(
-        filtered["Cluster"].notna(),
-        "Cluster "
-        + filtered["Cluster"].astype("Int64").astype(str)
-        + " | "
-        + filtered["Task"],
-        filtered["Category"] + " | " + filtered["Task"]
-    )
 
     # =========================================================
     # 4. ORDERING
@@ -304,11 +302,15 @@ def update_chart(selected_tasks, selected_cats):
     # =========================================================
     # 5. LANE PROGRESS
     # =========================================================
-    idx = (
+    filtered["_time_diff"] = (
         filtered["Start"]
         .sub(now)
         .abs()
-        .groupby(filtered["Lane"])
+    )
+    
+    idx = (
+        filtered
+        .groupby("Lane")["_time_diff"]
         .idxmin()
     )
 
@@ -321,36 +323,22 @@ def update_chart(selected_tasks, selected_cats):
         for lane in lane_order
     ]
 
-    # =========================================================
-    # 6. HOVER DATA (FIXED - NO DTYPE WARNING)
-    # =========================================================
-    filtered["Cluster_hover"] = np.where(
-        filtered["Cluster"].notna(),
-        filtered["Cluster"].astype("Int64").astype(str),
-        ""
-    )
-
-    filtered["Progress_hover"] = filtered["Progress"].astype(str)
-
-    for col in ["Supervisor", "Pilot", "Tether Manager", "Assistant", "Remark"]:
-        filtered[col] = filtered[col].fillna("")
-
-    hover_cols = [
-        "Date_str",
-        "Category",
-        "Task",
-        "Cluster_hover",
-        "Supervisor",
-        "Pilot",
-        "Tether Manager",
-        "Assistant",
-        "Remark",
-        "Progress_hover"
-    ]
 
     # =========================================================
     # 7. GANTT
     # =========================================================
+    hover_cols = [
+    "Date_str",
+    "Category",
+    "Task",
+    "Cluster_hover",
+    "Supervisor",
+    "Pilot",
+    "Tether Manager",
+    "Assistant",
+    "Remark",
+    "Progress_hover"
+    ]
     fig = px.timeline(
         filtered,
         x_start="Start",
@@ -417,7 +405,11 @@ def update_chart(selected_tasks, selected_cats):
         height=chart_height,
         margin=dict(l=240, r=30, t=60, b=40),
         dragmode="pan",
-        hoverlabel=dict(bgcolor="white", font_size=12)
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12
+        ),
+        uirevision="keep"
     )
 
     fig.update_yaxes(
@@ -434,7 +426,7 @@ server = app.server
 
 if __name__ == "__main__":
     app.run(
-        debug=True,
+        debug=False,
         host="0.0.0.0",
         port=8050
     )
