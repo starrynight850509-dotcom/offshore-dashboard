@@ -416,7 +416,8 @@ def update_chart(selected_tasks, selected_cats):
         autorange="reversed",
         tickmode="array",
         tickvals=lane_order,
-        ticktext=ticktext
+        ticktext=ticktext,
+        title_text=None
     )
 
     return fig
