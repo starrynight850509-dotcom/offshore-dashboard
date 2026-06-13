@@ -17,8 +17,8 @@ from dash import get_asset_url
 #%%Load data
 df = pd.read_excel("progress.xlsx")
 df["Date"] = pd.to_datetime(df["Date"])
-df["Start"] = df["Date"] - pd.Timedelta(hours=12)
-df["End"] = df["Date"] + pd.Timedelta(hours=12)
+df["Start"] = df["Date"] #- pd.Timedelta(hours=12)
+df["End"] = df["Date"] + pd.Timedelta(hours=24)
 # Category dtype (Filter會快很多)
 df["Task"] = df["Task"].astype("category")
 df["Category"] = df["Category"].astype("category")
