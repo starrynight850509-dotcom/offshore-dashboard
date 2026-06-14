@@ -315,13 +315,37 @@ def update_chart(selected_tasks, selected_cats):
     )
 
     lane_summary = filtered.loc[idx]
-
     lane_progress_map = lane_summary.set_index("Lane")["Progress"].to_dict()
-
-    ticktext = [
-        f"{lane} ({lane_progress_map.get(lane,0)}%)"
-        for lane in lane_order
+    
+    no_progress_tasks = [
+        "WOW",
+        "Day off",
+        "Data Processing"
     ]
+    
+    ticktext = []
+    for lane in lane_order:
+        row = filtered.loc[
+            filtered["Lane"] == lane
+        ].iloc[0]
+    
+        task = row["Task"]
+        progress = lane_progress_map.get(lane, 0)
+        if task in no_progress_tasks:
+            ticktext.append(lane)
+    
+        else:
+            if progress < 50:
+                color = "red"
+            elif progress < 80:
+                color = "orange"
+            else:
+                color = "green"
+    
+            ticktext.append(
+                f"{lane} "
+                f"<span style='color:{color};'><b>({progress}%)</b></span>"
+            )
 
 
     # =========================================================
