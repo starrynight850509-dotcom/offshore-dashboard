@@ -107,7 +107,7 @@ def build_summary_table():
             "width":"100%",
             "tableLayout":"fixed",
             "textAlign":"center",
-            "border":"1px solid black",
+            "border":"1px solid lightgray",
             "borderCollapse":"collapse"
         }
     )
