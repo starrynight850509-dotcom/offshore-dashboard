@@ -19,6 +19,10 @@ df = pd.read_excel("progress.xlsx")
 df["Date"] = pd.to_datetime(df["Date"])
 df["Start"] = df["Date"] #- pd.Timedelta(hours=12)
 df["End"] = df["Date"] + pd.Timedelta(hours=24)
+
+hourly_df = pd.read_excel("hourly.xlsx")
+hourly_df["Date"] = pd.to_datetime(hourly_df["Date"])
+
 # Category dtype (Filter會快很多)
 df["Task"] = df["Task"].astype("category")
 df["Category"] = df["Category"].astype("category")
@@ -229,23 +233,48 @@ app.layout = html.Div([
     # 4. GANTT VIEWER (主工程區)
     # =========================================================
     html.Div([
-
-        dcc.Graph(
-            id="gantt-chart",
-            config={
-                "displaylogo": False,
-                "scrollZoom": True,
-                "doubleClick": "reset"
+        # 左側
+        html.Div([
+    
+            dcc.Graph(
+                id="gantt-chart",
+                config={
+                "scrollZoom": True,      # 滑鼠滾輪縮放
+                "displayModeBar": True,  # 顯示 Plotly 工具列
+                "doubleClick": "reset"   # 雙擊重設縮放
+                }
+            )
+        ],
+        style={
+            "width":"80%",
+            "display":"inline-block",
+            "verticalAlign":"top"
+        }),
+        # 右側
+        html.Div(
+            id="detail-panel",
+            children=[
+                html.H3("Task Detail"),
+                html.Div(
+                    "Click a bar to view details",
+                    id="detail-content"
+                )
+            ],
+            style={
+                "width": "16%",
+                "display": "inline-block",
+                "verticalAlign": "top",
+                "padding": "15px",
+                "backgroundColor": "#ffffff",
+                "border": "1px solid #d1d5db",
+                "borderRadius": "10px",
+                "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
+                "height": "480px",
+                "overflowY": "auto",
+                "marginTop": "70px"   # ⭐ 往下移 20px
             }
         )
-
-    ], style={
-        "backgroundColor": "white",
-        "border": "1px solid #ddd",
-        "borderRadius": "6px",
-        "padding": "5px"
-    })
-
+    ])
 ])
 #%%Color map
 color_map = {
@@ -346,8 +375,6 @@ def update_chart(selected_tasks, selected_cats):
                 f"{lane} "
                 f"<span style='color:{color};'><b>({progress}%)</b></span>"
             )
-
-
     # =========================================================
     # 7. GANTT
     # =========================================================
@@ -361,7 +388,8 @@ def update_chart(selected_tasks, selected_cats):
     "Tether Manager",
     "Assistant",
     "Remark",
-    "Progress_hover"
+    "Progress_hover",
+    "Date"
     ]
     fig = px.timeline(
         filtered,
@@ -420,31 +448,178 @@ def update_chart(selected_tasks, selected_cats):
     # 9. LAYOUT
     # =========================================================
     chart_height = min(
-        max(650, len(lane_order) * 30),
-        1600
+        max(600, len(lane_order) * 30),
+        650
     )
-
     fig.update_layout(
         title="Engineering Operations Scheduling Gantt Chart",
+    
+        legend=dict(
+            orientation="h",
+            x=0.85,              # 最右邊
+            xanchor="right",    # 右對齊
+            y=1.08,             # 再往上移
+            yanchor="top",
+            font=dict(size=8)
+        ),
         height=chart_height,
-        margin=dict(l=240, r=30, t=60, b=40),
+        margin=dict(
+            l=240,
+            r=30,
+            t=120,             # 上方空間增加
+            b=40
+        ),
         dragmode="pan",
+    
         hoverlabel=dict(
             bgcolor="white",
             font_size=12
         ),
+    
         uirevision="keep"
     )
-
     fig.update_yaxes(
-        autorange="reversed",
-        tickmode="array",
-        tickvals=lane_order,
-        ticktext=ticktext,
-        title_text=None
+    autorange="reversed",
+    tickmode="array",
+    tickvals=lane_order,
+    ticktext=ticktext,
+    title=None
     )
-
     return fig
+#%% 
+#點擊顯示面板                   
+@app.callback(
+    Output("detail-content", "children"),
+    Input("gantt-chart", "clickData"))
+def show_detail(clickData):
+
+    if clickData is None:
+        return html.Div(
+            "Click a bar to view details",
+            style={
+                "fontSize": "12px",
+                "color": "#6b7280"
+            }
+        )
+    row = clickData["points"][0]["customdata"]
+    date_str = row[0]
+    task = row[2]
+    progress = row[9]
+    date = pd.to_datetime(row[10]).normalize()
+    timeline = hourly_df[
+        (hourly_df["Task"] == task) &
+        (hourly_df["Date"].dt.normalize() == date)
+    ].copy()
+    return html.Div([
+        html.H4(
+            task,
+            style={
+                "margin": "0px",
+                "fontSize": "16px",
+                "fontWeight": "bold",
+                "color": "#1f2937"
+            }
+        ),
+        html.Div(
+            date_str,
+            style={
+                "fontSize": "12px",
+                "color": "#6b7280",
+                "marginTop": "4px",
+                "marginBottom": "10px"
+            }
+        ),
+        html.Div([
+
+            html.Div([
+                html.Span(
+                    "Time",
+                    style={
+                        "display": "inline-block",
+                        "width": "70px",
+                        "textAlign": "center",
+                        "fontWeight": "bold",
+                        "fontSize": "12px"
+                    }
+                ),
+                html.Span(
+                    "Event",
+                    style={
+                        "fontWeight": "bold",
+                        "fontSize": "12px"
+                    }
+                )
+            ], style={
+                "padding": "6px",
+                "backgroundColor": "#f2f2f2",
+                "borderBottom": "1px solid lightgray",
+                "whiteSpace": "nowrap",
+                "minWidth": "450px"
+            }),
+            *[
+                html.Div([
+
+                    html.Span(
+                        "" if pd.isna(r["Time"]) else str(r["Time"]),
+                        style={
+                            "display": "inline-block",
+                            "width": "70px",
+                            "textAlign": "center",
+                            "fontSize": "12px",
+                            "color": "#2563eb"
+                        }
+                    ),
+
+                    html.Span(
+                        "" if pd.isna(r["Event"]) else str(r["Event"]),
+                        style={
+                            "fontSize": "12px",
+                            "whiteSpace": "nowrap"
+                        }
+                    )
+                ], style={
+                    "padding": "5px 6px",
+                    "borderBottom": "1px solid #eeeeee",
+                    "whiteSpace": "nowrap",
+                    "minWidth": "450px"
+                })
+
+                for _, r in timeline.iterrows()
+            ]
+        ], style={
+            "maxHeight": "300px",
+            "overflowY": "auto",
+            "overflowX": "auto",
+            "border": "1px solid #dddddd",
+            "borderRadius": "6px",
+            "marginBottom": "12px"
+        }),
+        html.Div(
+            [
+                html.Div(
+                    "Progress",
+                    style={
+                        "fontSize": "11px",
+                        "color": "#6b7280"
+                    }
+                ),
+                html.Div(
+                    f"{progress}%",
+                    style={
+                        "fontSize": "16px",
+                        "fontWeight": "bold",
+                        "color": "#16a34a"
+                    }
+                )
+            ],
+            style={
+                "padding": "10px",
+                "border": "1px solid #dddddd",
+                "borderRadius": "6px",
+                "backgroundColor": "#fafafa"
+            }
+        )
+    ])
 #%%Run server
 
 server = app.server
