@@ -3,37 +3,53 @@
     width: 100% !important;
 }
 
-/* 手機 / 平板 */
+/* =======================================================
+   Mobile（手機 / 平板）
+   ======================================================= */
+
 @media (max-width: 768px) {
 
+    /* 一般文字 */
     body {
         font-size: 12px;
     }
 
+    /* 主標題 */
     h2 {
         font-size: 20px !important;
         line-height: 1.3;
     }
 
+    /* 次標題 */
     h3,
     h4 {
         font-size: 16px !important;
     }
 
+    /* Label */
     label {
         font-size: 12px !important;
     }
 
+    /* Dropdown */
     .Select-control,
     .Select-placeholder,
     .Select-value-label {
         font-size: 12px !important;
     }
 
+    /* DatePicker */
     .DateInput_input {
         font-size: 12px !important;
     }
 
+    /* KPI 卡片可自動換行 */
+    .kpi-card {
+        width: 100% !important;
+        margin-bottom: 10px;
+    }
+
+    /* Plotly 圖表允許左右滑動 */
     .js-plotly-plot {
         overflow-x: auto;
     }
