@@ -463,6 +463,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     )
     fig.update_layout(
         title="Engineering Operations Scheduling Gantt Chart",
+        legend_title_text="",
     
         legend=dict(
             orientation="h",
