@@ -1,10 +1,15 @@
 ===============================================================
 修改你的 Excel
-git add progress.xlsx
+git add progress.xlsx hourly.xlsx
 git commit -m "update data"
 git push
 ===============================================================
 修改你的 Python
 git add app.py
 git commit -m "update dashboard"
+git push
+===============================================================
+修改你的 Pkl
+git add progress.pkl hourly.pkl
+git commit -m "update data"
 git push
