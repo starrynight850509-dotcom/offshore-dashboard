@@ -156,7 +156,7 @@ app = Dash(__name__)
 app.layout = html.Div([
 
     # =========================================================
-    # 1. HEADER (工程系統標題)
+    # HEADER (工程系統標題)
     # =========================================================
     html.Div([
         html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
@@ -167,7 +167,7 @@ app.layout = html.Div([
     ], style={"textAlign": "center", "marginBottom": "10px"}),
 
     # =========================================================
-    # 2. SUMMARY TABLE + KPI (控制面板區)
+    # SUMMARY TABLE + KPI (控制面板區)
     # =========================================================
     html.Div([
 
@@ -197,7 +197,7 @@ app.layout = html.Div([
     }),
 
     # =========================================================
-    # 3. TOOLBAR (工程 Filter 列)
+    # TOOLBAR (工程 Filter 列)
     # =========================================================
     html.Div([
 
@@ -228,9 +228,27 @@ app.layout = html.Div([
         "border": "1px solid #ddd",
         "borderRadius": "6px"
     }),
-
+    # # =========================================================
+    # # 日曆/選擇日期
+    # # =========================================================          
+    # html.Div([
+    #     html.Label("Mini Calendar / Jump to Date", style={"fontWeight": "bold"}),
+    #     dcc.DatePickerSingle(
+    #         id="date-picker",
+    #         date=None,
+    #         display_format="YYYY-MM-DD",
+    #         placeholder="Select a date"
+    #     )
+    # ], style={
+    #     "marginBottom": "10px",
+    #     "padding": "10px",
+    #     "backgroundColor": "white",
+    #     "border": "1px solid #ddd",
+    #     "borderRadius": "6px",
+    #     "textAlign": "center"
+    # }),        
     # =========================================================
-    # 4. GANTT VIEWER (主工程區)
+    # GANTT VIEWER (主工程區)
     # =========================================================
     html.Div([
         # 左側
@@ -254,7 +272,15 @@ app.layout = html.Div([
         html.Div(
             id="detail-panel",
             children=[
-                html.H3("Task Detail"),
+                html.H4("📅 Jump to Date"),
+                dcc.DatePickerSingle(
+                    id="date-picker",
+                    date=None,
+                    display_format="YYYY-MM-DD",
+                    placeholder="Select a date"
+                ),
+                html.Hr(),
+                #html.H3("Task Detail"),
                 html.Div(
                     "Click a bar to view details",
                     id="detail-content"
@@ -269,9 +295,9 @@ app.layout = html.Div([
                 "border": "1px solid #d1d5db",
                 "borderRadius": "10px",
                 "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-                "height": "480px",
+                "height": "550px",
                 "overflowY": "auto",
-                "marginTop": "70px"   # ⭐ 往下移 20px
+                "marginTop": "70px"
             }
         )
     ])
@@ -283,24 +309,21 @@ color_map = {
     "WOW(offshore)": "#d62728",      #紅
     "Day off": "#000000",            #黑
     "WOW(onshore)": "#7f7f7f"        #灰
-    
 }
 #%%Callback (dynamic update)
 @app.callback(
     Output("gantt-chart", "figure"),
     Input("task-filter", "value"),
-    Input("cat-filter", "value")
+    Input("cat-filter", "value"),
+    Input("date-picker", "date")
 )
-def update_chart(selected_tasks, selected_cats):
-
+def update_chart(selected_tasks, selected_cats, selected_date):
     # =========================================================
     # 0. SAFE DEFAULTS
     # =========================================================
     selected_tasks = selected_tasks or task_list
     selected_cats = selected_cats or cat_list
-
     now = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None)
-
     # =========================================================
     # 1. FILTER
     # =========================================================
@@ -308,8 +331,6 @@ def update_chart(selected_tasks, selected_cats):
         (df["Task"].isin(selected_tasks)) &
         (df["Category"].isin(selected_cats))
     ].copy()
-
-
     # =========================================================
     # 4. ORDERING
     # =========================================================
@@ -319,7 +340,6 @@ def update_chart(selected_tasks, selected_cats):
         ["_cluster_sort", "Task", "Start"],
         na_position="last"
     )
-
     lane_order = filtered["Lane"].drop_duplicates().tolist()
 
     filtered["Lane"] = pd.Categorical(
@@ -327,7 +347,6 @@ def update_chart(selected_tasks, selected_cats):
         categories=lane_order,
         ordered=True
     )
-
     # =========================================================
     # 5. LANE PROGRESS
     # =========================================================
@@ -336,13 +355,11 @@ def update_chart(selected_tasks, selected_cats):
         .sub(now)
         .abs()
     )
-    
     idx = (
         filtered
         .groupby("Lane")["_time_diff"]
         .idxmin()
     )
-
     lane_summary = filtered.loc[idx]
     lane_progress_map = lane_summary.set_index("Lane")["Progress"].to_dict()
     
@@ -351,18 +368,15 @@ def update_chart(selected_tasks, selected_cats):
         "Day off",
         "Data Processing"
     ]
-    
     ticktext = []
     for lane in lane_order:
         row = filtered.loc[
             filtered["Lane"] == lane
         ].iloc[0]
-    
         task = row["Task"]
         progress = lane_progress_map.get(lane, 0)
         if task in no_progress_tasks:
             ticktext.append(lane)
-    
         else:
             if progress < 50:
                 color = "red"
@@ -400,7 +414,6 @@ def update_chart(selected_tasks, selected_cats):
         color_discrete_map=color_map,
         custom_data=hover_cols
     )
-
     fig.update_traces(
         hovertemplate=
         "<b>%{customdata[2]}</b><br>"
@@ -415,7 +428,6 @@ def update_chart(selected_tasks, selected_cats):
         "Note: %{customdata[8]}"
         "<extra></extra>"
     )
-
     # =========================================================
     # 8. TODAY LINE
     # =========================================================
@@ -426,9 +438,8 @@ def update_chart(selected_tasks, selected_cats):
         y0=0,
         y1=1,
         yref="paper",
-        line=dict(color="red", width=2, dash="dash")
+        line=dict(color="red", width=2, dash="dot")
     )
-
     fig.add_annotation(
         x=now,
         y=1.02,
@@ -443,13 +454,12 @@ def update_chart(selected_tasks, selected_cats):
         bordercolor="red",
         borderwidth=1
     )
-
     # =========================================================
     # 9. LAYOUT
     # =========================================================
     chart_height = min(
-        max(600, len(lane_order) * 30),
-        650
+        max(650, len(lane_order) * 30),
+        700
     )
     fig.update_layout(
         title="Engineering Operations Scheduling Gantt Chart",
@@ -478,6 +488,40 @@ def update_chart(selected_tasks, selected_cats):
     
         uirevision="keep"
     )
+    ## SELECTED DATE ZOOM + HIGHLIGHT
+    if selected_date:
+        center_date = pd.to_datetime(selected_date)
+        # 自動 zoom 到選取日前後 3 天
+        fig.update_xaxes(
+            range=[
+                center_date - pd.Timedelta(days=3),
+                center_date + pd.Timedelta(days=3)
+            ]
+        )
+        # 加 Selected Date 藍色虛線
+        fig.add_shape(
+            type="line",
+            x0=center_date,
+            x1=center_date,
+            y0=0,
+            y1=1,
+            yref="paper",
+            line=dict(color="blue", width=2, dash="dot")
+        )
+        fig.add_annotation(
+            x=center_date,
+            y=1.02,
+            yref="paper",
+            text=(
+                f"<b>SELECTED</b><br>"
+                f"{center_date.strftime('%Y-%m-%d')}"
+            ),
+            showarrow=False,
+            font=dict(color="blue", size=12),
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="blue",
+            borderwidth=1
+        )   
     fig.update_yaxes(
     autorange="reversed",
     tickmode="array",
@@ -487,12 +531,18 @@ def update_chart(selected_tasks, selected_cats):
     )
     return fig
 #%% 
-#點擊顯示面板                   
+# =========================================================
+# 點擊 Gantt bar 後，更新右側 detail-content 面板
+# =========================================================
 @app.callback(
     Output("detail-content", "children"),
-    Input("gantt-chart", "clickData"))
+    Input("gantt-chart", "clickData")
+)
 def show_detail(clickData):
 
+    # ---------------------------------------------------------
+    # 1. 尚未點擊任何 bar 時，顯示預設提示文字
+    # ---------------------------------------------------------
     if clickData is None:
         return html.Div(
             "Click a bar to view details",
@@ -501,133 +551,218 @@ def show_detail(clickData):
                 "color": "#6b7280"
             }
         )
+
+    # ---------------------------------------------------------
+    # 2. 從 clickData 取得被點擊 bar 的資料
+    # customdata 對應 update_chart() 裡的 hover_cols 順序
+    # ---------------------------------------------------------
     row = clickData["points"][0]["customdata"]
+
     date_str = row[0]
+    category = row[1]
     task = row[2]
-    progress = row[9]
+    cluster = row[3]
+    progress = int(row[9])
+
+    # ---------------------------------------------------------
+    # 3. 根據 Progress 決定顏色與狀態 icon
+    # ---------------------------------------------------------
+    if progress < 50:
+        progress_color = "#dc2626"
+        progress_icon = "🔴"
+    elif progress < 80:
+        progress_color = "#f59e0b"
+        progress_icon = "🟠"
+    else:
+        progress_color = "#16a34a"
+        progress_icon = "🟢"
+
     date = pd.to_datetime(row[10]).normalize()
+
+    # ---------------------------------------------------------
+    # 4. 依照 Task + Date 從 hourly_df 找出當天 Timeline
+    # ---------------------------------------------------------
     timeline = hourly_df[
         (hourly_df["Task"] == task) &
         (hourly_df["Date"].dt.normalize() == date)
     ].copy()
-    return html.Div([
-        html.H4(
-            task,
-            style={
-                "margin": "0px",
-                "fontSize": "16px",
-                "fontWeight": "bold",
-                "color": "#1f2937"
-            }
-        ),
-        html.Div(
-            date_str,
-            style={
-                "fontSize": "12px",
-                "color": "#6b7280",
-                "marginTop": "4px",
-                "marginBottom": "10px"
-            }
-        ),
-        html.Div([
 
+    # ---------------------------------------------------------
+    # 5. 如果沒有 hourly timeline 資料
+    # ---------------------------------------------------------
+    if timeline.empty:
+        timeline_children = [
+            html.Div(
+                "No timeline data available.",
+                style={
+                    "fontSize": "12px",
+                    "color": "#6b7280",
+                    "padding": "8px"
+                }
+            )
+        ]
+
+    # ---------------------------------------------------------
+    # 6. 如果有 timeline 資料，建立每一列 Time + Event
+    # ---------------------------------------------------------
+    else:
+        timeline_children = [
             html.Div([
+
+                # Time 欄位
                 html.Span(
-                    "Time",
+                    "" if pd.isna(r["Time"]) else str(r["Time"]),
                     style={
                         "display": "inline-block",
                         "width": "70px",
                         "textAlign": "center",
+                        "fontSize": "12px",
                         "fontWeight": "bold",
-                        "fontSize": "12px"
+                        "color": "#2563eb",
+                        "verticalAlign": "top"
                     }
                 ),
+
+                # Event 欄位
                 html.Span(
-                    "Event",
+                    "" if pd.isna(r["Event"]) else str(r["Event"]),
                     style={
-                        "fontWeight": "bold",
-                        "fontSize": "12px"
+                        "fontSize": "12px",
+                        "color": "#374151",
+                        "whiteSpace": "nowrap"
                     }
                 )
+
             ], style={
                 "padding": "6px",
-                "backgroundColor": "#f2f2f2",
-                "borderBottom": "1px solid lightgray",
+                "borderBottom": "1px solid #eeeeee",
                 "whiteSpace": "nowrap",
                 "minWidth": "450px"
-            }),
-            *[
-                html.Div([
+            })
 
-                    html.Span(
-                        "" if pd.isna(r["Time"]) else str(r["Time"]),
-                        style={
-                            "display": "inline-block",
-                            "width": "70px",
-                            "textAlign": "center",
-                            "fontSize": "12px",
-                            "color": "#2563eb"
-                        }
-                    ),
+            for _, r in timeline.iterrows()
+        ]
 
-                    html.Span(
-                        "" if pd.isna(r["Event"]) else str(r["Event"]),
-                        style={
-                            "fontSize": "12px",
-                            "whiteSpace": "nowrap"
-                        }
-                    )
-                ], style={
-                    "padding": "5px 6px",
-                    "borderBottom": "1px solid #eeeeee",
-                    "whiteSpace": "nowrap",
-                    "minWidth": "450px"
-                })
+    # ---------------------------------------------------------
+    # 7. 回傳右側 Detail Panel 的內容
+    # ---------------------------------------------------------
+    return html.Div([
 
-                for _, r in timeline.iterrows()
-            ]
-        ], style={
-            "maxHeight": "300px",
-            "overflowY": "auto",
-            "overflowX": "auto",
-            "border": "1px solid #dddddd",
-            "borderRadius": "6px",
-            "marginBottom": "12px"
-        }),
-        html.Div(
-            [
-                html.Div(
-                    "Progress",
+        # =====================================================
+        # Task / Date / Progress 資訊卡
+        # =====================================================
+        html.Div([
+
+            # Task
+            html.Div([
+                html.Span(
+                    "Task : ",
                     style={
-                        "fontSize": "11px",
+                        "fontWeight": "bold",
                         "color": "#6b7280"
                     }
                 ),
-                html.Div(
-                    f"{progress}%",
+                html.Span(task)
+            ], style={
+                "fontSize": "13px",
+                "marginBottom": "8px"
+            }),
+
+            # Date
+            html.Div([
+                html.Span(
+                    "Date : ",
                     style={
-                        "fontSize": "16px",
                         "fontWeight": "bold",
-                        "color": "#16a34a"
+                        "color": "#6b7280"
+                    }
+                ),
+                html.Span(date_str)
+            ], style={
+                "fontSize": "13px",
+                "marginBottom": "8px"
+            }),
+
+            # Progress
+            html.Div([
+                html.Span(
+                    "Progress : ",
+                    style={
+                        "fontWeight": "bold",
+                        "color": "#6b7280"
+                    }
+                ),
+                html.Span(
+                    f"{progress_icon} {int(progress)}%",
+                    style={
+                        "color": progress_color,
+                        "fontWeight": "bold"
                     }
                 )
-            ],
+            ], style={
+                "fontSize": "13px"
+            })
+
+        ], style={
+            "padding": "10px",
+            "border": "1px solid #dddddd",
+            "borderRadius": "8px",
+            "backgroundColor": "#fafafa",
+            "marginBottom": "12px"
+        }),
+
+        html.Hr(),
+
+        # =====================================================
+        # Timeline 區塊標題
+        # =====================================================
+        html.H4(
+            "🕒 Timeline",
             style={
-                "padding": "10px",
+                "margin": "0 0 8px 0",
+                "fontSize": "15px",
+                "fontWeight": "bold",
+                "color": "#111827"
+            }
+        ),
+
+        # =====================================================
+        # Timeline 清單
+        # overflowX="auto" + whiteSpace="nowrap"
+        # 可保留左右拉桿，避免文字自動換行
+        # =====================================================
+        html.Div(
+            timeline_children,
+            style={
+                "maxHeight": "260px",
+                "overflowY": "auto",
+                "overflowX": "auto",
                 "border": "1px solid #dddddd",
-                "borderRadius": "6px",
-                "backgroundColor": "#fafafa"
+                "borderRadius": "8px",
+                "padding": "6px",
+                "backgroundColor": "white",
+                "whiteSpace": "nowrap"
             }
         )
     ])
 #%%Run server
-
+## render佈署
 server = app.server
-
 if __name__ == "__main__":
     app.run(
         debug=False,
         host="0.0.0.0",
         port=8050
     )
+
+# #本機測試
+# server = app.server
+# if __name__ == "__main__":
+#     app.run(
+#         debug=True,
+#         host="127.0.0.1",
+#         port=8050
+#     )    
+    
+    
 #http://127.0.0.1:8050/
