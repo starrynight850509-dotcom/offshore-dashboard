@@ -15,49 +15,49 @@ from dash import get_asset_url
 
 
 #%%Load data
-df = pd.read_excel("progress.xlsx")
-df["Date"] = pd.to_datetime(df["Date"])
-df["Start"] = df["Date"] #- pd.Timedelta(hours=12)
-df["End"] = df["Date"] + pd.Timedelta(hours=24)
+df = pd.read_pickle("progress.pkl")
+# df["Date"] = pd.to_datetime(df["Date"])
+# df["Start"] = df["Date"] #- pd.Timedelta(hours=12)
+# df["End"] = df["Date"] + pd.Timedelta(hours=24)
 
-hourly_df = pd.read_excel("hourly.xlsx")
-hourly_df["Date"] = pd.to_datetime(hourly_df["Date"])
+hourly_df = pd.read_pickle("hourly.pkl")
+# hourly_df["Date"] = pd.to_datetime(hourly_df["Date"])
 
-# Category dtype (Filter會快很多)
-df["Task"] = df["Task"].astype("category")
-df["Category"] = df["Category"].astype("category")
-# Cluster
-df["Cluster"] = pd.to_numeric(df["Cluster"],errors="coerce")
-# Progress
-df["Progress"] = (df["Progress"].astype(str).str.replace("%", "", regex=False))
-df["Progress"] = (pd.to_numeric(df["Progress"],errors="coerce").fillna(0))
-if df["Progress"].max() <= 1:
-    df["Progress"] *= 100
-df["Progress"] = (df["Progress"].round().astype(int))
-# Date String
-df["Date_str"] = (df["Date"].dt.strftime("%Y-%m-%d (%a)"))
-# Hover
-df["Cluster_hover"] = np.where(df["Cluster"].notna(),df["Cluster"].astype("Int64").astype(str),"")
-df["Progress_hover"] = (df["Progress"].astype(str))
-# Empty Text
-for col in [
-    "Supervisor",
-    "Pilot",
-    "Tether Manager",
-    "Assistant",
-    "Remark"]:
-    if col in df.columns:
-        df[col] = df[col].fillna("")
-# Lane (預先建立)
-df["Lane"] = np.where(
-    df["Cluster"].notna(),
-    "Cluster "
-    + df["Cluster"].astype("Int64").astype(str)
-    + " | "
-    + df["Task"].astype(str),
-    df["Category"].astype(str)
-    + " | "
-    + df["Task"].astype(str))
+# # Category dtype (Filter會快很多)
+# df["Task"] = df["Task"].astype("category")
+# df["Category"] = df["Category"].astype("category")
+# # Cluster
+# df["Cluster"] = pd.to_numeric(df["Cluster"],errors="coerce")
+# # Progress
+# df["Progress"] = (df["Progress"].astype(str).str.replace("%", "", regex=False))
+# df["Progress"] = (pd.to_numeric(df["Progress"],errors="coerce").fillna(0))
+# if df["Progress"].max() <= 1:
+#     df["Progress"] *= 100
+# df["Progress"] = (df["Progress"].round().astype(int))
+# # Date String
+# df["Date_str"] = (df["Date"].dt.strftime("%Y-%m-%d (%a)"))
+# # Hover
+# df["Cluster_hover"] = np.where(df["Cluster"].notna(),df["Cluster"].astype("Int64").astype(str),"")
+# df["Progress_hover"] = (df["Progress"].astype(str))
+# # Empty Text
+# for col in [
+#     "Supervisor",
+#     "Pilot",
+#     "Tether Manager",
+#     "Assistant",
+#     "Remark"]:
+#     if col in df.columns:
+#         df[col] = df[col].fillna("")
+# # Lane (預先建立)
+# df["Lane"] = np.where(
+#     df["Cluster"].notna(),
+#     "Cluster "
+#     + df["Cluster"].astype("Int64").astype(str)
+#     + " | "
+#     + df["Task"].astype(str),
+#     df["Category"].astype(str)
+#     + " | "
+#     + df["Task"].astype(str))
 # print(df["Progress"].describe())
 # print(df["Progress"].head(10))
 #%%Task / Category list
