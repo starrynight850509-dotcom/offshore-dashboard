@@ -272,7 +272,7 @@ app.layout = html.Div([
         html.Div(
             id="detail-panel",
             children=[
-                html.H4("📅 Jump to Date"),
+                html.H4("Jump to Date"),
                 dcc.DatePickerSingle(
                     id="date-picker",
                     date=None,
@@ -717,7 +717,7 @@ def show_detail(clickData):
         # Timeline 區塊標題
         # =====================================================
         html.H4(
-            "🕒 Timeline",
+            "Timeline",
             style={
                 "margin": "0 0 8px 0",
                 "fontSize": "15px",
@@ -755,7 +755,7 @@ if __name__ == "__main__":
         port=8050
     )
 
-# #本機測試
+## 本機測試
 # server = app.server
 # if __name__ == "__main__":
 #     app.run(
