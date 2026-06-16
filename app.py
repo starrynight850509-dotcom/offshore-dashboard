@@ -76,12 +76,14 @@ def build_summary_table():
 inspection_days = len(df[df["Category"]=="Inspection"]) - 1
 data_days = len(df[df["Category"]=="Data Processing"])
 wow_days = len(df[df["Category"]=="WOW(offshore)"]) + len(df[df["Category"]=="WOW(onshore)"])
+delay_days = len(df[df["Category"]=="Delay"])
 off_days = len(df[df["Category"]=="Day off"])
 kpi_data = {
     "Inspection Days": inspection_days,
     "Data Processing Days": data_days,
     "WOW Days": wow_days,
-    "Day Off Days": off_days}
+    "Delay Days": delay_days,
+    "Day Off": off_days}
 def build_card(title, value):
     ## 外框
     return html.Div([
@@ -98,14 +100,13 @@ def build_card(title, value):
             style={
                 "border": "1px solid lightgray",   # 淺灰色 1px 邊框
                 "padding": "10px",                 # 內距 15px（內容與邊框的距離）
-                "width": "20%",                    # （parent container）寬度的 20%
+                "width": "15%",                    # （parent container）寬度的 20%
                 "display": "inline-block",         # 與其他元件並排顯示
                 "margin": "10px",                  # 外距 10px（與其他元件的距離）
                 "textAlign": "center",             # 文字置中
                 "boxSizing": "border-box"
                 })
 #%%App
-
 app = Dash(__name__)
 app.layout = html.Div([
     # =========================================================
@@ -233,7 +234,8 @@ color_map = {
     "Data Processing": "#2ca02c",    #綠
     "WOW(offshore)": "#d62728",      #紅
     "Day off": "#000000",            #黑
-    "WOW(onshore)": "#7f7f7f"        #灰
+    "WOW(onshore)": "#bdbdbd",       #灰
+    "Delay": "#ff7f0e"               #橘
 }
 #%%Callback (dynamic update)
 @app.callback(
@@ -290,7 +292,8 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     no_progress_tasks = [
         "WOW",
         "Day off",
-        "Data Processing"
+        "Data Processing",
+        "Delay"
     ]
     ticktext = []
     for lane in lane_order:
@@ -336,6 +339,16 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         y="Lane",
         color="Category",
         color_discrete_map=color_map,
+        category_orders={
+        "Category": [
+            "Inspection",
+            "WOW(offshore)",
+            "Data Processing",
+            "WOW(onshore)",
+            "Delay",
+            "Day off"
+        ]
+        },
         custom_data=hover_cols
     )
     fig.update_traces(
