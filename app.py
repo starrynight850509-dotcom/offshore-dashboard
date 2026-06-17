@@ -31,8 +31,18 @@ task_df = df[
     ~df["Category"].isin(always_show_categories)
 ].copy()
 
-task_list = list(task_df["Task"].dropna().unique())
-cat_list = list(df["Category"].unique())
+task_list = sorted(task_df["Task"].dropna().unique())
+
+category_order = [
+    "Inspection",
+    "WOW(offshore)",
+    "Data Processing",
+    "WOW(onshore)",
+    "Delay",
+    "Day off"
+]
+
+cat_list = category_order
 #%%Summary Table
 projects = [
     {"name":"BeeX",
@@ -455,9 +465,10 @@ def update_chart(selected_tasks, selected_cats, selected_date):
             filtered["Lane"] == lane
         ].iloc[0]
         task = row["Task"]
+        category = row["Category"]
         progress = lane_progress_map.get(lane, 0)
         if task in no_progress_tasks:
-            ticktext.append(lane)
+            ticktext.append(category)
         else:
             if progress < 50:
                 color = "red"
@@ -494,14 +505,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         color="Category",
         color_discrete_map=color_map,
         category_orders={
-        "Category": [
-            "Inspection",
-            "WOW(offshore)",
-            "Data Processing",
-            "WOW(onshore)",
-            "Delay",
-            "Day off"
-        ]
+        "Category":category_order
         },
         custom_data=hover_cols
     )
