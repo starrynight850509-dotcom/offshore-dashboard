@@ -210,6 +210,7 @@ def build_upcoming_tasks(days=7):
             html.Tr([
                 html.Td(r["Start"].strftime("%Y-%m-%d")),
                 html.Td(r["Task"]),
+                html.Td(r["Category"]),
                 html.Td("" if pd.isna(r.get("Supervisor")) else r["Supervisor"]),
                 html.Td("" if pd.isna(r.get("Pilot")) else r["Pilot"]),
                 html.Td("" if pd.isna(r.get("Tether Manager")) else r["Tether Manager"]),
@@ -232,6 +233,7 @@ def build_upcoming_tasks(days=7):
                 html.Tr([
                     html.Th("Date"),
                     html.Th("Task"),
+                    html.Th("Category"),
                     html.Th("Supervisor"),
                     html.Th("Pilot"),
                     html.Th("Tether Manager"),
@@ -425,13 +427,21 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     # ORDERING
     # =========================================================
     filtered["_cluster_sort"] = filtered["Cluster"].fillna(999)
-
+    
+    # Non-Operational 固定排最後
+    filtered["_lane_sort"] = np.where(
+        filtered["Lane"] == "Non-Offshore",
+        9999,
+        filtered["_cluster_sort"]
+    )
+    
     filtered = filtered.sort_values(
-        ["_cluster_sort", "Task", "Start"],
+        ["_lane_sort", "Task", "Start"],
         na_position="last"
     )
+    
     lane_order = filtered["Lane"].drop_duplicates().tolist()
-
+    
     filtered["Lane"] = pd.Categorical(
         filtered["Lane"],
         categories=lane_order,
@@ -454,33 +464,32 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     lane_progress_map = lane_summary.set_index("Lane")["Progress"].to_dict()
     
     no_progress_tasks = [
-        "WOW",
-        "Day off",
-        "Data Processing",
-        "Delay"
+        "Non-Offshore",
     ]
     ticktext = []
     for lane in lane_order:
+    
+        if lane == "Non-Offshore":
+            ticktext.append(lane)
+            continue
+    
         row = filtered.loc[
             filtered["Lane"] == lane
         ].iloc[0]
-        task = row["Task"]
-        category = row["Category"]
-        progress = lane_progress_map.get(lane, 0)
-        if task in no_progress_tasks:
-            ticktext.append(category)
-        else:
-            if progress < 50:
-                color = "red"
-            elif progress < 80:
-                color = "orange"
-            else:
-                color = "green"
     
-            ticktext.append(
-                f"{lane} "
-                f"<span style='color:{color};'><b>({progress}%)</b></span>"
-            )
+        progress = lane_progress_map.get(lane, 0)
+    
+        if progress < 50:
+            color = "red"
+        elif progress < 80:
+            color = "orange"
+        else:
+            color = "green"
+    
+        ticktext.append(
+            f"{lane} "
+            f"<span style='color:{color};'><b>({progress}%)</b></span>"
+        )
     # =========================================================
     # GANTT
     # =========================================================
@@ -651,6 +660,7 @@ def show_detail(clickData):
     # =========================================================
     row = clickData["points"][0]["customdata"]
     date_str = row[0]
+    category = row[1]
     task = row[2]
     progress = int(row[9])
     # =========================================================
@@ -733,19 +743,28 @@ def show_detail(clickData):
     return html.Div([
         ## Task / Date / Progress 資訊卡
         html.Div([
-            # Task
+            # Task + Category
             html.Div([
-                html.Span(
-                    "Task : ",
+                html.Div(
+                    task,
                     style={
+                        "fontSize": "16px",
                         "fontWeight": "bold",
-                        "color": "#6b7280"
+                        "color": "#111827",
+                        "marginBottom": "2px"
                     }
                 ),
-                html.Span(task)
+                html.Div(
+                    category,
+                    style={
+                        "fontSize": "11px",
+                        "color": "#6b7280"
+                    }
+                )
             ], style={
-                "fontSize": "13px",
-                "marginBottom": "8px"
+                "paddingBottom": "8px",
+                "marginBottom": "8px",
+                "borderBottom": "1px solid #e5e7eb"
             }),
             # Date
             html.Div([
@@ -785,7 +804,7 @@ def show_detail(clickData):
             "padding": "10px",
             "border": "1px solid #dddddd",
             "borderRadius": "8px",
-            "backgroundColor": "#fafafa",
+            "backgroundColor": "#white",
             "marginBottom": "12px"
         }),
         html.Hr(),
@@ -817,7 +836,7 @@ def show_detail(clickData):
         )
     ])
 #%%Run server
-## render佈署
+# render佈署
 server = app.server
 if __name__ == "__main__":
     app.run(
@@ -826,7 +845,7 @@ if __name__ == "__main__":
         port=8050
     )
 
-## 本機測試
+# 本機測試
 # server = app.server
 # if __name__ == "__main__":
 #     app.run(

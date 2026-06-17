@@ -52,16 +52,34 @@ for col in [
     if col in df.columns:
         df[col] = df[col].fillna("")
 
+
+
+# df["Lane"] = np.where(
+#     df["Cluster"].notna(),
+#     "Cluster "
+#     + df["Cluster"].astype("Int64").astype(str)
+#     + " | "
+#     + df["Task"].astype(str),
+#     df["Category"].astype(str)
+#     + " | "
+#     + df["Task"].astype(str),
+# )
+non_operational_categories = [
+    "WOW(onshore)",
+    "Delay",
+    "Day off",
+    "Data Processing"
+]
+
 df["Lane"] = np.where(
-    df["Cluster"].notna(),
+    df["Category"].isin(non_operational_categories),
+    "Non-Offshore",
     "Cluster "
     + df["Cluster"].astype("Int64").astype(str)
     + " | "
-    + df["Task"].astype(str),
-    df["Category"].astype(str)
-    + " | "
-    + df["Task"].astype(str),
+    + df["Task"].astype(str)
 )
+
 
 # 存成 Pickle
 df.to_pickle("progress.pkl")
