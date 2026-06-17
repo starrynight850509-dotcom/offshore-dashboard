@@ -264,7 +264,7 @@ app.layout = html.Div([
         html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
                 style={"marginBottom": "5px"}),
 
-        html.Div("Engineering Scheduling & Progress Tracking System",
+        html.Div("Engineering Scheduling & Progress Tracking System | v1.0 Beta",
                  style={"color": "gray", "fontSize": "14px"})
     ], style={"textAlign": "center", "marginBottom": "10px"}),
     # =========================================================
