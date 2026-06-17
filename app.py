@@ -17,8 +17,21 @@ from dash import get_asset_url
 #%%Load data
 df = pd.read_pickle("progress.pkl")
 hourly_df = pd.read_pickle("hourly.pkl")
+
 #%%Task / Category list
-task_list = list(df["Task"].unique())
+# task_list = list(df["Task"].unique())
+always_show_categories = [
+    "WOW(onshore)",
+    "Delay",
+    "Day off",
+    "Data Processing"
+]
+
+task_df = df[
+    ~df["Category"].isin(always_show_categories)
+].copy()
+
+task_list = list(task_df["Task"].dropna().unique())
 cat_list = list(df["Category"].unique())
 #%%Summary Table
 projects = [
@@ -48,7 +61,7 @@ def build_summary_table():
                     str(days),
                     style={
                         "color":"red",
-                        "fontSize":"25px",
+                        "fontSize":"20px",
                         "fontWeight":"bold"
                     }
                 )
@@ -69,15 +82,66 @@ def build_summary_table():
             "tableLayout": "fixed",          # 固定欄寬，不依內容自動調整
             "textAlign": "center",           # 所有文字置中
             "border": "1px solid lightgray", # 表格外框為淺灰色 1px
-            "borderCollapse": "collapse"     # 合併相鄰儲存格邊框，避免雙線
+            #"borderCollapse": "collapse",     # 合併相鄰儲存格邊框，避免雙線
+            "borderRadius": "8px"
         }
     )
 #%%KPI Dashboard
-inspection_days = len(df[df["Category"]=="Inspection"]) - 1
-data_days = len(df[df["Category"]=="Data Processing"])
-wow_days = len(df[df["Category"]=="WOW(offshore)"]) + len(df[df["Category"]=="WOW(onshore)"])
-delay_days = len(df[df["Category"]=="Delay"])
-off_days = len(df[df["Category"]=="Day off"])
+today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
+kpi_df = df[df["Date"].dt.normalize() <= today].copy()
+
+inspection_days = (
+    kpi_df.loc[
+        kpi_df["Category"] == "Inspection",
+        "Date"
+    ]
+    .dt.normalize()
+    .nunique()
+)
+
+data_days = (
+    kpi_df.loc[
+        kpi_df["Category"] == "Data Processing",
+        "Date"
+    ]
+    .dt.normalize()
+    .nunique()
+)
+
+wow_days = (
+    kpi_df.loc[
+        kpi_df["Category"].isin(
+            ["WOW(offshore)", "WOW(onshore)"]
+        ),
+        "Date"
+    ]
+    .dt.normalize()
+    .nunique()
+)
+
+delay_days = (
+    kpi_df.loc[
+        kpi_df["Category"] == "Delay",
+        "Date"
+    ]
+    .dt.normalize()
+    .nunique()
+)
+
+off_days = (
+    kpi_df.loc[
+        kpi_df["Category"] == "Day off",
+        "Date"
+    ]
+    .dt.normalize()
+    .nunique()
+)
+
+# inspection_days = len(df[df["Category"]=="Inspection"]) - 1  ##6/1有兩隻塔
+# data_days = len(df[df["Category"]=="Data Processing"])
+# wow_days = len(df[df["Category"]=="WOW(offshore)"]) + len(df[df["Category"]=="WOW(onshore)"])
+# delay_days = len(df[df["Category"]=="Delay"])
+# off_days = len(df[df["Category"]=="Day off"])
 kpi_data = {
     "Inspection Days": inspection_days,
     "Data Processing Days": data_days,
@@ -104,8 +168,82 @@ def build_card(title, value):
                 "display": "inline-block",         # 與其他元件並排顯示
                 "margin": "10px",                  # 外距 10px（與其他元件的距離）
                 "textAlign": "center",             # 文字置中
-                "boxSizing": "border-box"
+                "boxSizing": "border-box",
+                "borderRadius": "8px"
                 })
+#%%upcoming_tasks
+def build_upcoming_tasks(days=7):
+    today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
+    end_day = today + pd.Timedelta(days=days)
+
+    upcoming = df[
+        (df["Start"] >= today) &
+        (df["Start"] < end_day)
+    ].copy()
+
+    if upcoming.empty:
+        return html.Div(
+            "No upcoming tasks.",
+            style={
+                "fontSize": "12px",
+                "color": "#6b7280",
+                "padding": "10px"
+            }
+        )
+
+    upcoming = upcoming.sort_values(["Start", "Task"])
+
+    rows = []
+
+    for _, r in upcoming.iterrows():
+        rows.append(
+            html.Tr([
+                html.Td(r["Start"].strftime("%Y-%m-%d")),
+                html.Td(r["Task"]),
+                html.Td("" if pd.isna(r.get("Supervisor")) else r["Supervisor"]),
+                html.Td("" if pd.isna(r.get("Pilot")) else r["Pilot"]),
+                html.Td("" if pd.isna(r.get("Tether Manager")) else r["Tether Manager"]),
+                html.Td("" if pd.isna(r.get("Assistant")) else r["Assistant"]),
+                html.Td("" if pd.isna(r.get("Remark")) else r["Remark"]),
+            ])
+        )
+
+    return html.Div([
+        html.H4(
+            "Upcoming Tasks",
+            style={
+                "margin": "0 0 8px 0",
+                "fontSize": "14px"
+            }
+        ),
+
+        html.Table(
+            [
+                html.Tr([
+                    html.Th("Date"),
+                    html.Th("Task"),
+                    html.Th("Supervisor"),
+                    html.Th("Pilot"),
+                    html.Th("Tether Manager"),
+                    html.Th("Assistant"),
+                    html.Th("Note")
+                ])
+            ] + rows,
+            style={
+                "width": "100%",
+                "tableLayout": "auto",
+                "textAlign": "center",
+                "borderCollapse": "collapse",
+                "fontSize": "12px"
+            }
+        )
+    ], style={
+        "backgroundColor": "#f9f9f9",
+        "padding": "10px",
+        "border": "1px solid lightgray",
+        "borderRadius": "8px",
+        "marginTop": "10px"
+    })
 #%%App
 app = Dash(__name__)
 app.layout = html.Div([
@@ -138,7 +276,9 @@ app.layout = html.Div([
                 "gap": "10px",
                 "marginTop": "10px"
             }
-        )
+        ),
+        # Upcoming Tasks
+        build_upcoming_tasks(days=7)
     ], style={
         "backgroundColor": "#f9f9f9",
         "padding": "10px",
@@ -253,8 +393,22 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     # =========================================================
     # FILTER
     # =========================================================
+    # filtered = df.loc[
+    #     (df["Task"].isin(selected_tasks)) &
+    #     (df["Category"].isin(selected_cats))
+    # ].copy()
+    selected_tasks = selected_tasks or task_list
+    selected_cats = selected_cats or cat_list
+    
+    always_show_mask = df["Category"].isin(always_show_categories)
+    
+    task_filter_mask = (
+        df["Task"].isin(selected_tasks) &
+        ~always_show_mask
+    )
+    
     filtered = df.loc[
-        (df["Task"].isin(selected_tasks)) &
+        (task_filter_mask | always_show_mask) &
         (df["Category"].isin(selected_cats))
     ].copy()
     # =========================================================
@@ -660,22 +814,22 @@ def show_detail(clickData):
     ])
 #%%Run server
 ## render佈署
-# server = app.server
-# if __name__ == "__main__":
-#     app.run(
-#         debug=False,
-#         host="0.0.0.0",
-#         port=8050
-#     )
-
-## 本機測試
 server = app.server
 if __name__ == "__main__":
     app.run(
-        debug=True,
-        host="127.0.0.1",
+        debug=False,
+        host="0.0.0.0",
         port=8050
-    )    
+    )
+
+## 本機測試
+# server = app.server
+# if __name__ == "__main__":
+#     app.run(
+#         debug=True,
+#         host="127.0.0.1",
+#         port=8050
+#     )    
     
     
 #http://127.0.0.1:8050/
