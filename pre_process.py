@@ -68,7 +68,7 @@ non_operational_categories = [
     "WOW(onshore)",
     "Delay",
     "Day off",
-    "Data Processing"
+    "Data Processing",
 ]
 
 df["Lane"] = np.where(

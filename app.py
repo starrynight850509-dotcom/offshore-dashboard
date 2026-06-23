@@ -24,11 +24,17 @@ always_show_categories = [
     "WOW(onshore)",
     "Delay",
     "Day off",
-    "Data Processing"
+    "Data Processing",
 ]
 
 task_df = df[
-    ~df["Category"].isin(always_show_categories)
+    (~df["Category"].isin(always_show_categories))
+    &
+    (~df["Task"].isin([
+        "Mobilization",
+        "Demobilization",
+        "Standby"
+    ]))
 ].copy()
 
 task_list = sorted(task_df["Task"].dropna().unique())
@@ -39,7 +45,7 @@ category_order = [
     "Data Processing",
     "WOW(onshore)",
     "Delay",
-    "Day off"
+    "Day off",
 ]
 
 cat_list = category_order
@@ -147,6 +153,15 @@ off_days = (
     .nunique()
 )
 
+standby_days = (
+    kpi_df.loc[
+        kpi_df["Category"] == "Standby",
+        "Date"
+    ]
+    .dt.normalize()
+    .nunique()
+)
+
 # inspection_days = len(df[df["Category"]=="Inspection"]) - 1  ##6/1有兩隻塔
 # data_days = len(df[df["Category"]=="Data Processing"])
 # wow_days = len(df[df["Category"]=="WOW(offshore)"]) + len(df[df["Category"]=="WOW(onshore)"])
@@ -157,7 +172,8 @@ kpi_data = {
     "Data Processing Days": data_days,
     "WOW Days": wow_days,
     "Delay Days": delay_days,
-    "Day Off": off_days}
+    "Day Off": off_days,
+    "Standby": standby_days}
 def build_card(title, value):
     ## 外框
     return html.Div([
@@ -176,7 +192,7 @@ def build_card(title, value):
                 "padding": "10px",                 # 內距 15px（內容與邊框的距離）
                 "width": "15%",                    # （parent container）寬度的 20%
                 "display": "inline-block",         # 與其他元件並排顯示
-                "margin": "10px",                  # 外距 10px（與其他元件的距離）
+                "margin": "5px",                  # 外距 10px（與其他元件的距離）
                 "textAlign": "center",             # 文字置中
                 "boxSizing": "border-box",
                 "borderRadius": "8px"
@@ -387,7 +403,7 @@ color_map = {
     "WOW(offshore)": "#d62728",      #紅
     "Day off": "#000000",            #黑
     "WOW(onshore)": "#bdbdbd",       #灰
-    "Delay": "#ff7f0e"               #橘
+    "Delay": "#ff7f0e",              #橘
 }
 #%%Callback (dynamic update)
 @app.callback(
@@ -559,6 +575,67 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         borderwidth=1
     )
     # =========================================================
+    # MILESTONES: MOB / DEMOB / REMOB
+    # =========================================================
+    milestones = [
+        ("2026-04-06", "MOB", "blue"),
+        ("2026-06-19", "DEMOB", "orange"),
+        ("2026-08-01", "REMOB", "green"),]
+    for date, label, color in milestones:
+        date = (pd.Timestamp(date)+ pd.Timedelta(hours=12))
+        fig.add_shape(
+            type="line",
+            x0=date,
+            x1=date,
+            y0=0,
+            y1=1,
+            yref="paper",
+            line=dict(color=color,width=2,dash="dot")
+        )
+    
+        fig.add_annotation(
+            x=date,
+            y=0.5,
+            yref="paper",
+            text=(f"<b>{label}</b><br>"f"{date.strftime('%Y-%m-%d')}"),
+            showarrow=False,
+            font=dict(color=color,size=12),
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor=color,
+            borderwidth=1
+        )
+    # =========================================================
+    # STANDBY BACKGROUND
+    # =========================================================
+    fig.add_shape(
+        type="rect",
+        x0=pd.Timestamp("2026-06-20"),
+        x1=pd.Timestamp("2026-07-31"),
+        y0=0,
+        y1=1,
+        xref="x",
+        yref="paper",
+        fillcolor="#696969",
+        opacity=0.40,
+        layer="below",
+        line_width=0
+    )
+    
+    fig.add_annotation(
+        x=pd.Timestamp("2026-07-11"),
+        y=0.5,
+        yref="paper",
+        text="<b>STANDBY</b>",
+        showarrow=False,
+        font=dict(
+            color="gray",
+            size=12
+        ),
+        bgcolor="rgba(255,255,255,0.85)",
+        bordercolor="gray",
+        borderwidth=1
+    )
+    # =========================================================
     # LAYOUT
     # =========================================================
     chart_height = min(
@@ -571,7 +648,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     
         legend=dict(
             orientation="h",
-            x=0.85,              # 最右邊
+            x=0.55,              # 最右邊
             xanchor="right",    # 右對齊
             y=1.08,             # 再往上移
             yanchor="top",
@@ -635,6 +712,10 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     tickvals=lane_order,
     ticktext=ticktext,
     title=None
+    )
+    fig.update_xaxes(
+    rangeslider_visible=False,
+    fixedrange=False
     )
     return fig
 #%% 點擊 Gantt bar 後，更新右側 detail-content 面板
