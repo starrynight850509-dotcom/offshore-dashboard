@@ -89,6 +89,15 @@ hourly_df = pd.read_excel("hourly.xlsx")
 hourly_df["Date"] = pd.to_datetime(hourly_df["Date"])
 hourly_df.to_pickle("hourly.pkl")
 
+metadata = {
+    "updated": pd.Timestamp.now(
+        tz="Asia/Taipei"
+    )
+}
+pd.to_pickle(
+    metadata,
+    "metadata.pkl"
+)
 
 print("✅ Pickle files generated successfully!")
 

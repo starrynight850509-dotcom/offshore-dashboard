@@ -20,10 +20,9 @@ from dash import get_asset_url
 df = pd.read_pickle("progress.pkl")
 hourly_df = pd.read_pickle("hourly.pkl")
 
-data_updated = datetime.fromtimestamp(
-    os.path.getmtime("progress.pkl"),
-    tz=ZoneInfo("Asia/Taipei")
-)
+metadata = pd.read_pickle("metadata.pkl")
+
+data_updated = metadata["updated"]
 #%%Task / Category list
 # task_list = list(df["Task"].unique())
 always_show_categories = [
