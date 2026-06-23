@@ -366,14 +366,35 @@ app.layout = html.Div([
         html.Div(
             id="detail-panel",
             children=[
-                html.H4("Jump to Date"),
+                html.H4("Project Resources",
+                style={
+                        "margin":"0px",
+                        "padding":"0px"
+                    }
+                ),
+                html.A(
+                    "Photo Archive",
+                    href="https://iovtec.sharepoint.com/sites/IOGWindProject/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FIOGWindProject%2FShared%20Documents%2F01%5FOperations%2F04%5FOngoing%20Projects%2F4372%5F%20Manpower%20for%20BeeX%2F2%2E%20Project%20Documentation%2F%E4%BD%9C%E6%A5%AD%E7%85%A7%E7%89%87&p=true&ct=1782188226845&or=Teams%2DHL&ga=1&LOF=1",
+                    target="_blank",
+                    style={
+                        "display":"block",
+                        "marginTop":"0px"
+                    }
+                ),
+                html.Hr(style={"margin":"5px 0"}),
+                html.H4("Jump to Date",
+                style={
+                        "margin":"0px",
+                        "padding":"0px"
+                    }
+                ),
                 dcc.DatePickerSingle(
                     id="date-picker",
                     date=None,
                     display_format="YYYY-MM-DD",
                     placeholder="Select a date"
                 ),
-                html.Hr(),
+                html.Hr(style={"margin":"5px 0"}),
                 #html.H3("Task Detail"),
                 html.Div(
                     "Click a bar to view details",
@@ -888,7 +909,7 @@ def show_detail(clickData):
             "backgroundColor": "#white",
             "marginBottom": "12px"
         }),
-        html.Hr(),
+        html.Hr(style={"margin":"5px 0"}),
         ##Timeline 區塊標題
         html.H4(
             "Timeline",
