@@ -92,7 +92,7 @@ hourly_df.to_pickle("hourly.pkl")
 metadata = {
     "updated": pd.Timestamp.now(
         tz="Asia/Taipei"
-    )
+    ).strftime("%Y-%m-%d %H:%M")
 }
 pd.to_pickle(
     metadata,
