@@ -578,9 +578,9 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     # MILESTONES: MOB / DEMOB / REMOB
     # =========================================================
     milestones = [
-        ("2026-04-06", "MOB", "blue"),
-        ("2026-06-19", "DEMOB", "orange"),
-        ("2026-08-01", "REMOB", "green"),]
+        ("2026-04-06", "MOB", "#4b5563"),
+        ("2026-06-19", "DEMOB", "#4b5563"),
+        ("2026-08-01", "REMOB", "#4b5563"),]
     for date, label, color in milestones:
         date = (pd.Timestamp(date)+ pd.Timedelta(hours=12))
         fig.add_shape(
