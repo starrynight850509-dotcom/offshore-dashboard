@@ -22,6 +22,7 @@ hourly_df = pd.read_pickle("hourly.pkl")
 
 metadata = pd.read_pickle("metadata.pkl")
 
+metadata = pd.read_pickle("metadata.pkl")
 data_updated = metadata["updated"]
 #%%Task / Category list
 # task_list = list(df["Task"].unique())
@@ -287,7 +288,7 @@ app.layout = html.Div([
         html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
                 style={"marginBottom": "5px"}),
 
-        html.Div(f"Engineering Scheduling & Progress Tracking System | v1.0 Beta | Updated {data_updated:%Y-%m-%d %H:%M}",
+        html.Div(f"Engineering Scheduling & Progress Tracking System | v1.0 Beta | Updated {data_updated} TPE",
                  style={"color": "gray", "fontSize": "14px"})
     ], style={"textAlign": "center", "marginBottom": "10px"}),
     # =========================================================
