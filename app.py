@@ -12,6 +12,7 @@ import numpy as np
 import os
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from dash import get_asset_url
 
 
@@ -20,7 +21,8 @@ df = pd.read_pickle("progress.pkl")
 hourly_df = pd.read_pickle("hourly.pkl")
 
 data_updated = datetime.fromtimestamp(
-    os.path.getmtime("progress.pkl")
+    os.path.getmtime("progress.pkl"),
+    tz=ZoneInfo("Asia/Taipei")
 )
 #%%Task / Category list
 # task_list = list(df["Task"].unique())
