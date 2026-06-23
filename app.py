@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+import os
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 from dash import get_asset_url
@@ -18,6 +19,9 @@ from dash import get_asset_url
 df = pd.read_pickle("progress.pkl")
 hourly_df = pd.read_pickle("hourly.pkl")
 
+data_updated = datetime.fromtimestamp(
+    os.path.getmtime("progress.pkl")
+)
 #%%Task / Category list
 # task_list = list(df["Task"].unique())
 always_show_categories = [
@@ -282,7 +286,7 @@ app.layout = html.Div([
         html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
                 style={"marginBottom": "5px"}),
 
-        html.Div("Engineering Scheduling & Progress Tracking System | v1.0 Beta",
+        html.Div(f"Engineering Scheduling & Progress Tracking System | v1.0 Beta | Updated {data_updated:%Y-%m-%d %H:%M}",
                  style={"color": "gray", "fontSize": "14px"})
     ], style={"textAlign": "center", "marginBottom": "10px"}),
     # =========================================================
