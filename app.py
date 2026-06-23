@@ -680,7 +680,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
             l=180,
             r=20,
             t=100,             # 上方空間增加
-            b=40
+            b=5
         ),
         dragmode="pan",
     
@@ -735,7 +735,8 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     title=None
     )
     fig.update_xaxes(
-    rangeslider_visible=False,
+    rangeslider_visible=True,
+    rangeslider=dict(thickness=0.02),
     fixedrange=False
     )
     return fig
