@@ -19,11 +19,67 @@ from dash import get_asset_url
 #%%Load data
 df = pd.read_pickle("progress.pkl")
 hourly_df = pd.read_pickle("hourly.pkl")
-
-metadata = pd.read_pickle("metadata.pkl")
-
 metadata = pd.read_pickle("metadata.pkl")
 data_updated = metadata["updated"]
+#%%Color map
+color_map = {
+    "Inspection": "#1f77b4",         #藍
+    "Data Processing": "#2ca02c",    #綠
+    "WOW(offshore)": "#d62728",      #紅
+    "Day off": "#000000",            #黑
+    "WOW(onshore)": "#bdbdbd",       #灰
+    "Delay": "#ff7f0e",              #橘
+}
+category_icon = {
+    "Inspection": "🟦",
+    "Data Processing": "🟩",
+    "WOW(offshore)": "🟥",
+    "WOW(onshore)": "⬜",
+    "Delay": "🟧",
+    "Day off": "⬛",
+    "Mob": "⚓",
+    "Demob": "🏁",
+    "Standby": "⏸️"
+}
+#%%Project Events
+# project_events = pd.DataFrame([
+#     {
+#         "Date": pd.Timestamp("2026-04-06"),
+#         "MarkerType": "PROJECT_EVENT",
+#         "EventType": "MOB",
+#         "Task": "⚓ MOB",
+#         "Title": "Mobilization",
+#         "Detail": "BeeX team mobilized for F2 offshore wind farm underwater inspection.",
+#         "Remark": "Project start / preparation phase"
+#     },
+#     {
+#         "Date": pd.Timestamp("2026-06-19"),
+#         "MarkerType": "PROJECT_EVENT",
+#         "EventType": "DEMOB",
+#         "Task": "🏁 DEMOB",
+#         "Title": "Demobilization",
+#         "Detail": "BeeX team demobilized due to F2 crane issue.",
+#         "Remark": "Operation suspended / team off-jacket"
+#     },
+#     {
+#         "Date": pd.Timestamp("2026-06-20"),
+#         "MarkerType": "PROJECT_EVENT",
+#         "EventType": "STANDBY",
+#         "Task": "⏸️ STANDBY",
+#         "Title": "Standby Period",
+#         "Detail": "Project remains on standby pending further instruction from F2 side.",
+#         "Remark": "Standby period from 2026-06-20 to 2026-07-31"
+#     },
+#     {
+#         "Date": pd.Timestamp("2026-08-01"),
+#         "MarkerType": "PROJECT_EVENT",
+#         "EventType": "REMOB",
+#         "Task": "🔄 REMOB",
+#         "Title": "Remobilization",
+#         "Detail": "Expected remobilization for continued offshore inspection works.",
+#         "Remark": "Tentative remobilization date"
+#     }
+# ])
 #%%Task / Category list
 # task_list = list(df["Task"].unique())
 always_show_categories = [
@@ -42,7 +98,6 @@ task_df = df[
         "Standby"
     ]))
 ].copy()
-
 task_list = sorted(task_df["Task"].dropna().unique())
 
 category_order = [
@@ -53,7 +108,6 @@ category_order = [
     "Delay",
     "Day off",
 ]
-
 cat_list = category_order
 #%%Summary Table
 projects = [
@@ -232,7 +286,8 @@ def build_upcoming_tasks(days=7):
             html.Tr([
                 html.Td(r["Start"].strftime("%Y-%m-%d")),
                 html.Td(r["Task"]),
-                html.Td(r["Category"]),
+                html.Td(html.Span(
+                    f"{category_icon.get(r['Category'],'')} {r['Category']}")),
                 html.Td("" if pd.isna(r.get("Supervisor")) else r["Supervisor"]),
                 html.Td("" if pd.isna(r.get("Pilot")) else r["Pilot"]),
                 html.Td("" if pd.isna(r.get("Tether Manager")) else r["Tether Manager"]),
@@ -423,15 +478,7 @@ app.layout = html.Div([
         )
     ])
 ])
-#%%Color map
-color_map = {
-    "Inspection": "#1f77b4",         #藍
-    "Data Processing": "#2ca02c",    #綠
-    "WOW(offshore)": "#d62728",      #紅
-    "Day off": "#000000",            #黑
-    "WOW(onshore)": "#bdbdbd",       #灰
-    "Delay": "#ff7f0e",              #橘
-}
+
 #%%Callback (dynamic update)
 @app.callback(
     Output("gantt-chart", "figure"),
@@ -484,6 +531,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     )
     
     lane_order = filtered["Lane"].drop_duplicates().tolist()
+    # lane_order = ["Project Events"] + lane_order
     
     filtered["Lane"] = pd.Categorical(
         filtered["Lane"],
@@ -500,35 +548,38 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     )
     idx = (
         filtered
-        .groupby("Lane")["_time_diff"]
+        .groupby("Lane", observed=True)["_time_diff"]
         .idxmin()
     )
     lane_summary = filtered.loc[idx]
     lane_progress_map = lane_summary.set_index("Lane")["Progress"].to_dict()
     
-    no_progress_tasks = [
-        "Non-Offshore",
-    ]
     ticktext = []
     for lane in lane_order:
+    
+        if lane == "Project Events":
+            ticktext.append("Project Events")
+            continue
     
         if lane == "Non-Offshore":
             ticktext.append(lane)
             continue
     
-        row = filtered.loc[
+        lane_rows = filtered.loc[
             filtered["Lane"] == lane
-        ].iloc[0]
+        ]
     
+        if lane_rows.empty:
+            ticktext.append(lane)
+            continue
+
         progress = lane_progress_map.get(lane, 0)
-    
         if progress < 50:
             color = "red"
         elif progress < 80:
             color = "orange"
         else:
             color = "green"
-    
         ticktext.append(
             f"{lane} "
             f"<span style='color:{color};'><b>({progress}%)</b></span>"
@@ -561,6 +612,30 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         },
         custom_data=hover_cols
     )
+    # Project Event
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=project_events["Date"],
+    #         y=["Project Events"] * len(project_events),
+    #         mode="markers+text",
+    #         text=project_events["Task"],
+    #         textposition="top center",
+    #         marker=dict(
+    #             size=14,
+    #             color="#4b5563"
+    #         ),
+    #         customdata=project_events[
+    #             ["MarkerType", "EventType", "Title", "Detail", "Remark"]
+    #         ],
+    #         hovertemplate=
+    #             "<b>%{customdata[2]}</b><br>"
+    #             "Type: %{customdata[1]}<br>"
+    #             "Detail: %{customdata[3]}<br>"
+    #             "Remark: %{customdata[4]}"
+    #             "<extra></extra>",
+    #         name="Project Events"
+    #     )
+    # )
     fig.update_traces(
         hovertemplate=
         "<b>%{customdata[2]}</b><br>"
@@ -864,7 +939,7 @@ def show_detail(clickData):
                     }
                 ),
                 html.Div(
-                    category,
+                    f"{category_icon.get(category,'')} {category}",
                     style={
                         "fontSize": "11px",
                         "color": "#6b7280"
