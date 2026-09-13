@@ -682,7 +682,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     milestones = [
         ("2026-04-06", "MOB", "#4b5563"),
         ("2026-06-19", "DEMOB", "#4b5563"),
-        ("2026-09-01", "REMOB", "#4b5563"),]
+        ("2026-09-13", "REMOB", "#4b5563"),]
     for date, label, color in milestones:
         date = (pd.Timestamp(date)+ pd.Timedelta(hours=12))
         fig.add_shape(
@@ -712,7 +712,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     fig.add_shape(
         type="rect",
         x0=pd.Timestamp("2026-06-20"),
-        x1=pd.Timestamp("2026-09-01"),
+        x1=pd.Timestamp("2026-09-12"),
         y0=0,
         y1=1,
         xref="x",
