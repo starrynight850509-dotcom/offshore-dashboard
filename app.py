@@ -343,7 +343,7 @@ app.layout = html.Div([
         html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
                 style={"marginBottom": "5px"}),
 
-        html.Div(f"Engineering Scheduling & Progress Tracking System | v1.0 Beta | Updated {data_updated}",
+        html.Div(f"Engineering Scheduling & Progress Tracking System | v1.1.0 Beta | Updated {data_updated}",
                  style={"color": "gray", "fontSize": "14px"})
     ], style={"textAlign": "center", "marginBottom": "10px"}),
     # =========================================================
@@ -471,7 +471,7 @@ app.layout = html.Div([
                 "border": "1px solid #d1d5db",
                 "borderRadius": "10px",
                 "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-                "height": "550px",
+                "height": "560px",
                 "overflowY": "auto",
                 "marginTop": "70px"
             }
@@ -846,6 +846,7 @@ def show_detail(clickData):
     date_str = row[0]
     category = row[1]
     task = row[2]
+    note = row[8]
     progress = int(row[9])
     # =========================================================
     # 根據 Progress 決定顏色與狀態 icon
@@ -927,7 +928,7 @@ def show_detail(clickData):
     return html.Div([
         ## Task / Date / Progress 資訊卡
         html.Div([
-            # Task + Category
+            # Task + Category + Note
             html.Div([
                 html.Div(
                     task,
@@ -938,13 +939,27 @@ def show_detail(clickData):
                         "marginBottom": "2px"
                     }
                 ),
+        
+                # Category
                 html.Div(
                     f"{category_icon.get(category,'')} {category}",
                     style={
                         "fontSize": "11px",
                         "color": "#6b7280"
                     }
-                )
+                ),
+        
+                # Note
+                html.Div(
+                    note,
+                    style={
+                        "fontSize": "9px",
+                        "color": "#9ca3af",
+                        "marginTop": "2px",
+                        "fontStyle": "italic"
+                    }
+                ) if note else None
+        
             ], style={
                 "paddingBottom": "8px",
                 "marginBottom": "8px",
@@ -1029,7 +1044,7 @@ if __name__ == "__main__":
         port=8050
     )
 
-# 本機測試
+#本機測試
 # server = app.server
 # if __name__ == "__main__":
 #     app.run(
