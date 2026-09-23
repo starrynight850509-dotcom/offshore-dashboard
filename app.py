@@ -724,7 +724,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     )
     
     fig.add_annotation(
-        x=pd.Timestamp("2026-07-11"),
+        x=pd.Timestamp("2026-07-31"),
         y=0.5,
         yref="paper",
         text="<b>STANDBY</b>",
