@@ -3,3 +3,5 @@ plotly
 pandas
 openpyxl
 gunicorn
+psycopg2-binary
+SQLAlchemy

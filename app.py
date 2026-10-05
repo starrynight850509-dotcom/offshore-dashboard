@@ -12,12 +12,15 @@ import numpy as np
 import os
 import sqlite3
 import hashlib
+import secrets
+import psycopg2
 from flask import Flask, request, Response
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from dash import get_asset_url
-import secrets
+from sqlalchemy import create_engine
+
 
 
 #%%Load data
@@ -28,16 +31,29 @@ data_updated = metadata["updated"]
 
 
 #%% Site analytics
-ANALYTICS_DB = os.getenv("ANALYTICS_DB", "analytics.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 ANALYTICS_PATH = "/admin"
 ANALYTICS_USER = os.getenv("ANALYTICS_USER")
 ANALYTICS_PASSWORD = os.getenv("ANALYTICS_PASSWORD")
 SESSION_MINUTES = 30
 
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not configured")
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
 def _adb():
-    c = sqlite3.connect(ANALYTICS_DB)
-    c.execute("""CREATE TABLE IF NOT EXISTS page_views(
-        ts TEXT, visitor TEXT, device TEXT, browser TEXT, path TEXT)""")
+    c = psycopg2.connect(DATABASE_URL)
+    with c.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS page_views(
+                ts TIMESTAMPTZ NOT NULL,
+                visitor TEXT NOT NULL,
+                device TEXT,
+                browser TEXT,
+                path TEXT
+            )
+        """)
     c.commit()
     return c
 
@@ -46,8 +62,8 @@ def _check_auth():
     if not auth or not ANALYTICS_USER or not ANALYTICS_PASSWORD:
         return False
     return (
-        secrets.compare_digest(auth.username, ANALYTICS_USER) and
-        secrets.compare_digest(auth.password, ANALYTICS_PASSWORD)
+        secrets.compare_digest(auth.username, ANALYTICS_USER)
+        and secrets.compare_digest(auth.password, ANALYTICS_PASSWORD)
     )
 
 def _auth_required():
@@ -59,8 +75,7 @@ def _auth_required():
 def _client_info():
     ua = request.headers.get("User-Agent", "")
     ip = request.headers.get(
-        "X-Forwarded-For",
-        request.remote_addr or ""
+        "X-Forwarded-For", request.remote_addr or ""
     ).split(",")[0].strip()
 
     u = ua.lower()
@@ -75,14 +90,12 @@ def _client_info():
     return ip, device, browser
 
 def _track():
-    # 只記錄真正開啟 Dashboard 首頁
     if request.method != "GET" or request.path != "/":
         return
 
     ua = request.headers.get("User-Agent", "")
     u = ua.lower()
 
-    # 排除 bot / crawler / monitoring
     blocked = [
         "python-requests", "curl/", "wget/",
         "bot", "crawler", "spider",
@@ -93,7 +106,6 @@ def _track():
     if not ua or any(x in u for x in blocked):
         return
 
-    # 只接受一般瀏覽器
     if not any(x in u for x in ["edg/", "chrome/", "firefox/", "safari/"]):
         return
 
@@ -101,12 +113,17 @@ def _track():
 
     try:
         with _adb() as c:
-            c.execute(
-                "INSERT INTO page_views VALUES(?,?,?,?,?)",
-                (datetime.now(ZoneInfo("Asia/Taipei")).isoformat(),
-                 visitor, device, browser, "/")
-            )
-    except sqlite3.Error:
+            with c.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO page_views
+                    (ts, visitor, device, browser, path)
+                    VALUES (%s, %s, %s, %s, %s)""",
+                    (
+                        datetime.now(ZoneInfo("Asia/Taipei")),
+                        visitor, device, browser, "/"
+                    )
+                )
+    except psycopg2.Error:
         pass
 
 def _sessionize(v):
@@ -124,8 +141,11 @@ def _sessionize(v):
     return v.drop(columns="_session")
 
 def _analytics():
-    with _adb() as c:
-        v = pd.read_sql_query("SELECT * FROM page_views ORDER BY ts", c)
+    with engine.connect() as c:
+        v = pd.read_sql_query(
+            "SELECT ts, visitor, device, browser, path FROM page_views ORDER BY ts",
+            c
+        )
 
     if not v.empty:
         v["ts"] = pd.to_datetime(v["ts"], utc=True).dt.tz_convert("Asia/Taipei")
@@ -187,7 +207,7 @@ def _analytics():
     <p>Asia/Taipei · Visitor = Public IP</p>
     <p class="note">
         Page View = dashboard homepage load ·
-        Session = same IP activity grouped within 30 minutes
+        Session = same IP activity grouped within {SESSION_MINUTES} minutes
     </p>
 
     {cards}
