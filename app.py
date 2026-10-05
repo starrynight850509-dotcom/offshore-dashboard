@@ -10,6 +10,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 import os
+import sqlite3
+import hashlib
+from flask import Flask, request, Response
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -21,6 +24,147 @@ df = pd.read_pickle("progress.pkl")
 hourly_df = pd.read_pickle("hourly.pkl")
 metadata = pd.read_pickle("metadata.pkl")
 data_updated = metadata["updated"]
+
+
+#%% Site analytics
+ANALYTICS_DB = os.getenv("ANALYTICS_DB", "analytics.db")
+ANALYTICS_SALT = os.getenv("ANALYTICS_SALT", "change-this-on-render")
+ANALYTICS_PATH = "/_analytics"
+SESSION_MINUTES = 30
+
+def _adb():
+    c = sqlite3.connect(ANALYTICS_DB)
+    c.execute("""CREATE TABLE IF NOT EXISTS page_views(
+        ts TEXT, visitor TEXT, device TEXT, browser TEXT, path TEXT)""")
+    c.commit()
+    return c
+
+def _client_info():
+    ua = request.headers.get("User-Agent", "")
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    visitor = hashlib.sha256((ANALYTICS_SALT + ip + ua).encode()).hexdigest()[:16]
+
+    u = ua.lower()
+    device = "Mobile" if any(x in u for x in ["mobile", "android", "iphone"]) else "Desktop"
+
+    if "edg/" in u: browser = "Edge"
+    elif "chrome/" in u: browser = "Chrome"
+    elif "firefox/" in u: browser = "Firefox"
+    elif "safari/" in u: browser = "Safari"
+    else: browser = "Other"
+
+    return visitor, device, browser
+
+def _track():
+    # 只記錄真正開啟 Dashboard 首頁
+    if request.method != "GET" or request.path != "/":
+        return
+
+    ua = request.headers.get("User-Agent", "")
+    if not ua or any(x in ua.lower() for x in ["python-requests", "curl/", "wget/"]):
+        return
+
+    visitor, device, browser = _client_info()
+
+    try:
+        with _adb() as c:
+            c.execute(
+                "INSERT INTO page_views VALUES(?,?,?,?,?)",
+                (datetime.now(ZoneInfo("Asia/Taipei")).isoformat(),
+                 visitor, device, browser, "/")
+            )
+    except sqlite3.Error:
+        pass
+
+def _sessionize(v):
+    if v.empty:
+        v["session_id"] = pd.Series(dtype="object")
+        return v
+
+    v = v.sort_values(["visitor", "ts"]).copy()
+    gap = v.groupby("visitor")["ts"].diff()
+
+    new_session = gap.isna() | (gap > pd.Timedelta(minutes=SESSION_MINUTES))
+    v["_session"] = new_session.groupby(v["visitor"]).cumsum().astype(int)
+    v["session_id"] = v["visitor"] + "-" + v["_session"].astype(str)
+
+    return v.drop(columns="_session")
+
+def _analytics():
+    with _adb() as c:
+        v = pd.read_sql_query("SELECT * FROM page_views ORDER BY ts", c)
+
+    if not v.empty:
+        v["ts"] = pd.to_datetime(v["ts"], utc=True).dt.tz_convert("Asia/Taipei")
+        v = _sessionize(v)
+
+        now = pd.Timestamp.now(tz="Asia/Taipei")
+        today = v[v["ts"] >= now.normalize()]
+        d7 = v[v["ts"] >= now - pd.Timedelta(days=7)]
+        d30 = v[v["ts"] >= now - pd.Timedelta(days=30)]
+    else:
+        today = d7 = d30 = v
+
+    groups = [
+        ("Today", today),
+        ("7 Days", d7),
+        ("30 Days", d30)
+    ]
+
+    cards = ""
+    for title, data in groups:
+        views = len(data)
+        unique = data["visitor"].nunique() if not data.empty else 0
+        sessions = data["session_id"].nunique() if not data.empty else 0
+
+        cards += f"""
+        <div class="section-title">{title}</div>
+        <div class="card-row">
+            <div class="card"><b>{views}</b><br>Page Views</div>
+            <div class="card"><b>{unique}</b><br>Unique Visitors</div>
+            <div class="card"><b>{sessions}</b><br>Sessions</div>
+        </div>
+        """
+
+    if not v.empty:
+        recent = v.sort_values("ts", ascending=False).head(50).copy()
+        recent["ts"] = recent["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        recent = recent[
+            ["ts", "visitor", "device", "browser", "session_id"]
+        ].to_html(index=False)
+    else:
+        recent = "<p>No page views yet.</p>"
+
+    return f"""
+    <style>
+        body {{font-family:Arial; margin:30px; background:#f8fafc; color:#111827}}
+        .section-title {{font-size:18px; font-weight:bold; margin:20px 0 5px}}
+        .card-row {{display:flex; gap:10px}}
+        .card {{
+            background:white; border:1px solid #ddd; border-radius:10px;
+            padding:15px 25px; text-align:center; min-width:140px
+        }}
+        .card b {{font-size:26px; color:#1f77b4}}
+        table {{background:white; border-collapse:collapse; margin-top:20px}}
+        td,th {{padding:7px; border:1px solid #ddd}}
+        .note {{color:#6b7280; font-size:13px}}
+    </style>
+
+    <h1>Site Analytics</h1>
+    <p>Asia/Taipei · raw IP is not stored</p>
+    <p class="note">
+        Page View = dashboard homepage load ·
+        Session = same visitor activity grouped within 30 minutes
+    </p>
+
+    {cards}
+
+    <h3>Recent Page Views</h3>
+    {recent}
+
+    <p><a href="/">&larr; Back to Dashboard</a></p>
+    """
+
 #%%Color map
 color_map = {
     "Inspection": "#1f77b4",         #藍
@@ -334,7 +478,14 @@ def build_upcoming_tasks(days=7):
         "marginTop": "10px"
     })
 #%%App
-app = Dash(__name__)
+server = Flask(__name__)
+server.before_request(_track)
+
+@server.route(ANALYTICS_PATH)
+def analytics_page():
+    return Response(_analytics(), mimetype="text/html")
+
+app = Dash(__name__, server=server)
 app.layout = html.Div([
     # =========================================================
     # HEADER (工程系統標題)
@@ -1036,7 +1187,6 @@ def show_detail(clickData):
     ])
 #%%Run server
 # render佈署
-server = app.server
 if __name__ == "__main__":
     app.run(
         debug=False,
