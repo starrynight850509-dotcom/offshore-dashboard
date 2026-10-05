@@ -40,7 +40,13 @@ SESSION_MINUTES = 30
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not configured")
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SQLALCHEMY_URL = DATABASE_URL.replace(
+    "postgresql://",
+    "postgresql+psycopg2://",
+    1
+)
+
+engine = create_engine(SQLALCHEMY_URL, pool_pre_ping=True)
 
 def _adb():
     c = psycopg2.connect(DATABASE_URL)
