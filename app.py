@@ -28,7 +28,6 @@ data_updated = metadata["updated"]
 
 #%% Site analytics
 ANALYTICS_DB = os.getenv("ANALYTICS_DB", "analytics.db")
-ANALYTICS_SALT = os.getenv("ANALYTICS_SALT", "change-this-on-render")
 ANALYTICS_PATH = "/_analytics"
 SESSION_MINUTES = 30
 
@@ -41,8 +40,10 @@ def _adb():
 
 def _client_info():
     ua = request.headers.get("User-Agent", "")
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
-    visitor = hashlib.sha256((ANALYTICS_SALT + ip + ua).encode()).hexdigest()[:16]
+    ip = request.headers.get(
+        "X-Forwarded-For",
+        request.remote_addr or ""
+    ).split(",")[0].strip()
 
     u = ua.lower()
     device = "Mobile" if any(x in u for x in ["mobile", "android", "iphone"]) else "Desktop"
@@ -53,7 +54,7 @@ def _client_info():
     elif "safari/" in u: browser = "Safari"
     else: browser = "Other"
 
-    return visitor, device, browser
+    return ip, device, browser
 
 def _track():
     # 只記錄真正開啟 Dashboard 首頁
@@ -121,7 +122,7 @@ def _analytics():
         <div class="section-title">{title}</div>
         <div class="card-row">
             <div class="card"><b>{views}</b><br>Page Views</div>
-            <div class="card"><b>{unique}</b><br>Unique Visitors</div>
+            <div class="card"><b>{unique}</b><br>Unique IPs</div>
             <div class="card"><b>{sessions}</b><br>Sessions</div>
         </div>
         """
@@ -131,7 +132,7 @@ def _analytics():
         recent["ts"] = recent["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
         recent = recent[
             ["ts", "visitor", "device", "browser", "session_id"]
-        ].to_html(index=False)
+        ].rename(columns={"visitor": "ip"}).to_html(index=False)
     else:
         recent = "<p>No page views yet.</p>"
 
@@ -151,10 +152,10 @@ def _analytics():
     </style>
 
     <h1>Site Analytics</h1>
-    <p>Asia/Taipei · raw IP is not stored</p>
+    <p>Asia/Taipei · Visitor = Public IP</p>
     <p class="note">
         Page View = dashboard homepage load ·
-        Session = same visitor activity grouped within 30 minutes
+        Session = same IP activity grouped within 30 minutes
     </p>
 
     {cards}
