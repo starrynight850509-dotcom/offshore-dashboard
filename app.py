@@ -17,6 +17,7 @@ from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from dash import get_asset_url
+import secrets
 
 
 #%%Load data
@@ -29,6 +30,8 @@ data_updated = metadata["updated"]
 #%% Site analytics
 ANALYTICS_DB = os.getenv("ANALYTICS_DB", "analytics.db")
 ANALYTICS_PATH = "/_analytics"
+ANALYTICS_USER = os.getenv("ANALYTICS_USER")
+ANALYTICS_PASSWORD = os.getenv("ANALYTICS_PASSWORD")
 SESSION_MINUTES = 30
 
 def _adb():
@@ -37,6 +40,21 @@ def _adb():
         ts TEXT, visitor TEXT, device TEXT, browser TEXT, path TEXT)""")
     c.commit()
     return c
+
+def _check_auth():
+    auth = request.authorization
+    if not auth or not ANALYTICS_USER or not ANALYTICS_PASSWORD:
+        return False
+    return (
+        secrets.compare_digest(auth.username, ANALYTICS_USER) and
+        secrets.compare_digest(auth.password, ANALYTICS_PASSWORD)
+    )
+
+def _auth_required():
+    return Response(
+        "Authentication required.", 401,
+        {"WWW-Authenticate": 'Basic realm="Site Analytics"'}
+    )
 
 def _client_info():
     ua = request.headers.get("User-Agent", "")
@@ -63,18 +81,18 @@ def _track():
 
     ua = request.headers.get("User-Agent", "")
     u = ua.lower()
-    
-    # 排除 bot / crawler / monitoring / 非一般瀏覽器
+
+    # 排除 bot / crawler / monitoring
     blocked = [
         "python-requests", "curl/", "wget/",
         "bot", "crawler", "spider",
         "googlebot", "bingbot",
         "monitor", "healthcheck", "uptime"
     ]
-    
+
     if not ua or any(x in u for x in blocked):
         return
-    
+
     # 只接受一般瀏覽器
     if not any(x in u for x in ["edg/", "chrome/", "firefox/", "safari/"]):
         return
@@ -498,9 +516,12 @@ server.before_request(_track)
 
 @server.route(ANALYTICS_PATH)
 def analytics_page():
+    if not _check_auth():
+        return _auth_required()
     return Response(_analytics(), mimetype="text/html")
 
 app = Dash(__name__, server=server)
+
 app.layout = html.Div([
     # =========================================================
     # HEADER (工程系統標題)
