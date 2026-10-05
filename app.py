@@ -29,7 +29,7 @@ data_updated = metadata["updated"]
 
 #%% Site analytics
 ANALYTICS_DB = os.getenv("ANALYTICS_DB", "analytics.db")
-ANALYTICS_PATH = "/_analytics"
+ANALYTICS_PATH = "/admin"
 ANALYTICS_USER = os.getenv("ANALYTICS_USER")
 ANALYTICS_PASSWORD = os.getenv("ANALYTICS_PASSWORD")
 SESSION_MINUTES = 30
