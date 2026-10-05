@@ -62,7 +62,21 @@ def _track():
         return
 
     ua = request.headers.get("User-Agent", "")
-    if not ua or any(x in ua.lower() for x in ["python-requests", "curl/", "wget/"]):
+    u = ua.lower()
+    
+    # 排除 bot / crawler / monitoring / 非一般瀏覽器
+    blocked = [
+        "python-requests", "curl/", "wget/",
+        "bot", "crawler", "spider",
+        "googlebot", "bingbot",
+        "monitor", "healthcheck", "uptime"
+    ]
+    
+    if not ua or any(x in u for x in blocked):
+        return
+    
+    # 只接受一般瀏覽器
+    if not any(x in u for x in ["edg/", "chrome/", "firefox/", "safari/"]):
         return
 
     visitor, device, browser = _client_info()
