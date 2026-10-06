@@ -1763,7 +1763,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         )
         fig.add_annotation(
             x=center_date,
-            y=1.02,
+            y=0.88,
             yref="paper",
             text=(
                 f"<b>SELECTED</b><br>"
