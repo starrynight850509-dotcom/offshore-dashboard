@@ -1142,7 +1142,7 @@ app.layout = html.Div([
     
         html.Div(
             f"Engineering Scheduling & Progress Tracking System | "
-            f"v1.3.0 Beta | Updated {data_updated}",
+            f"v1.4.0 Beta | Updated {data_updated}",
             style={
                 "color": "gray",
                 "fontSize": "14px"
