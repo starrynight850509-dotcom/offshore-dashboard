@@ -22,7 +22,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from dash import get_asset_url
 from sqlalchemy import create_engine
-
+from sqlalchemy import text
 
 
 from dotenv import load_dotenv
@@ -550,19 +550,68 @@ def build_wave_chart():
 # Windy startup initialization
 # ============================================================
 
-# 必須先建立 PostgreSQL table，
-# 否則 load_latest_wave_forecast() SELECT 時
-# 會出現：
-#   relation "wave_forecast" does not exist
+# Web App 啟動時只確認 PostgreSQL table 存在。
+# 不在 startup 呼叫 Windy API，避免外部 API 延遲拖慢網站啟動。
+# Forecast 更新改由獨立 scheduled job 執行。
 _init_wave_db()
+# ============================================================
+# Windy forecast last update status
+# ============================================================
 
+wave_df_status = load_latest_wave_forecast()
 
-# 測試階段：
-# Dashboard 啟動時向 Windy API 更新一次 forecast。
-#
-# Production 後續可改成 scheduler / scheduled job，
-# 避免 Render restart 或多 worker 時重複呼叫 API。
-update_windy_wave()
+if not wave_df_status.empty:
+    last_updated = wave_df_status["fetched_at"].max()
+
+    now_tw = pd.Timestamp.now(tz="Asia/Taipei")
+    age_hours = (now_tw - last_updated).total_seconds() / 3600
+
+    windy_updated_text = (
+        f"Windy Forecast Updated {last_updated:%Y-%m-%d %H:%M}"
+    )
+
+    if age_hours > 6:
+        windy_updated_text += " | ⚠ Forecast may be outdated"
+
+else:
+    windy_updated_text = "Windy Forecast Unavailable"
+    
+def get_windy_last_updated():
+    """
+    取得 F2 representative point 的 Windy forecast
+    最後更新時間。
+
+    只查 MAX(fetched_at)，不載入整批 forecast。
+    """
+
+    query = text("""
+        SELECT MAX(fetched_at) AS last_updated
+        FROM wave_forecast
+        WHERE model = :model
+          AND lat = :lat
+          AND lon = :lon
+    """)
+
+    with engine.connect() as c:
+        result = c.execute(
+            query,
+            {
+                "model": WINDY_MODEL,
+                "lat": F2_LAT,
+                "lon": F2_LON
+            }
+        ).scalar()
+
+    if result is None:
+        return None
+
+    last_updated = pd.Timestamp(result)
+
+    if last_updated.tzinfo is None:
+        last_updated = last_updated.tz_localize("UTC")
+
+    return last_updated.tz_convert("Asia/Taipei")
+    
 #%% Site analytics
 DATABASE_URL = os.getenv("DATABASE_URL")
 ANALYTICS_PATH = "/admin"
@@ -1086,12 +1135,44 @@ app.layout = html.Div([
     # HEADER (工程系統標題)
     # =========================================================
     html.Div([
-        html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
-                style={"marginBottom": "5px"}),
-
-        html.Div(f"Engineering Scheduling & Progress Tracking System | v1.3.0 Beta | Updated {data_updated}",
-                 style={"color": "gray", "fontSize": "14px"})
-    ], style={"textAlign": "center", "marginBottom": "10px"}),
+        html.H2(
+            "🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
+            style={"marginBottom": "5px"}
+        ),
+    
+        html.Div(
+            f"Engineering Scheduling & Progress Tracking System | "
+            f"v1.3.0 Beta | Updated {data_updated}",
+            style={
+                "color": "gray",
+                "fontSize": "14px"
+            }
+        ),
+    
+        # Windy forecast 最後更新時間
+        # 內容由 callback 自動更新
+        html.Div(
+            id="windy-update-status",
+            children="Windy Forecast: Checking...",
+            style={
+                "color": "#6b7280",
+                "fontSize": "12px",
+                "marginTop": "3px"
+            }
+        )
+    
+    ], style={
+        "textAlign": "center",
+        "marginBottom": "10px"
+    }),
+    # =========================================================
+    # WINDY STATUS REFRESH
+    # =========================================================
+    dcc.Interval(
+        id="windy-status-interval",
+        interval=5 * 60 * 1000,
+        n_intervals=0
+    ),
     # =========================================================
     # SUMMARY TABLE + KPI (控制面板區)
     # =========================================================
@@ -1992,6 +2073,38 @@ def show_detail(clickData):
             }
         )
     ])
+#%%windy-update-status
+@app.callback(
+    Output("windy-update-status", "children"),
+    Input("windy-status-interval", "n_intervals")
+)
+def update_windy_status(_):
+
+    try:
+        last_updated = get_windy_last_updated()
+
+        if last_updated is None:
+            return "Windy Forecast: Unavailable"
+
+        now_tw = pd.Timestamp.now(tz="Asia/Taipei")
+
+        age_hours = (
+            now_tw - last_updated
+        ).total_seconds() / 3600
+
+        status = (
+            f"Windy Forecast Updated "
+            f"{last_updated:%Y-%m-%d %H:%M}"
+        )
+
+        if age_hours > 6:
+            status += " | ⚠ Forecast may be outdated"
+
+        return status
+
+    except Exception as e:
+        print(f"Windy status check failed: {e}")
+        return "Windy Forecast: Status unavailable"        
 #%%Run server
 #render佈署
 if __name__ == "__main__":
