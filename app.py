@@ -14,6 +14,8 @@ import sqlite3
 import hashlib
 import secrets
 import psycopg2
+import requests
+
 from flask import Flask, request, Response
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
@@ -23,13 +25,536 @@ from sqlalchemy import create_engine
 
 
 
+from dotenv import load_dotenv
+load_dotenv(".env")
+print("DATABASE_URL loaded:", bool(os.getenv("DATABASE_URL")))
+print("WINDY_API_KEY loaded:", bool(os.getenv("WINDY_API_KEY")))
+
 #%%Load data
 df = pd.read_pickle("progress.pkl")
 hourly_df = pd.read_pickle("hourly.pkl")
 metadata = pd.read_pickle("metadata.pkl")
 data_updated = metadata["updated"]
+#%% Environment Variables
+# ============================================================
+# Local:
+#   從專案資料夾的 .env 讀取環境變數
+#
+# Render:
+#   Render Environment Variables 仍可由 os.getenv() 取得
+# ============================================================
+
+load_dotenv()
+
+# PostgreSQL
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Windy API
+WINDY_API_KEY = os.getenv("WINDY_API_KEY")
+
+# Analytics
+ANALYTICS_PATH = "/admin"
+ANALYTICS_USER = os.getenv("ANALYTICS_USER")
+ANALYTICS_PASSWORD = os.getenv("ANALYTICS_PASSWORD")
+
+SESSION_MINUTES = 30
 
 
+# ------------------------------------------------------------
+# PostgreSQL configuration check
+# ------------------------------------------------------------
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not configured")
+
+
+# SQLAlchemy PostgreSQL URL
+SQLALCHEMY_URL = DATABASE_URL.replace(
+    "postgresql://",
+    "postgresql+psycopg2://",
+    1
+)
+
+engine = create_engine(
+    SQLALCHEMY_URL,
+    pool_pre_ping=True
+)
+#%% Windy Point Forecast
+# ============================================================
+# Windy Point Forecast API
+# 功能：
+#   1. 從 Windy Point Forecast API 取得 F2 代表點的波浪預報
+#   2. 將 API JSON 轉換成 pandas DataFrame
+#   3. 將每次取得的 forecast snapshot 儲存至 PostgreSQL
+#   4. 讀取最新一次 forecast snapshot
+#   5. 建立 Plotly 波高圖，供 Dashboard 顯示
+#
+# 注意：
+#   - 此處資料為 Windy Forecast，不是現地觀測值
+#   - fetched_at = 取得預報的時間
+#   - valid_time = 預報所代表的時間
+#   - 保留每次 snapshot，不覆寫舊 forecast
+# ============================================================
+
+WINDY_API_KEY = os.getenv("WINDY_API_KEY")
+WINDY_URL = "https://api.windy.com/api/point-forecast/v2"
+
+# F2 wind farm representative point
+F2_LAT = 24.70843
+F2_LON = 120.75996
+
+# Windy wave model
+WINDY_MODEL = "gfsWave"
+
+
+# ------------------------------------------------------------
+# 1. 建立 Windy forecast PostgreSQL 資料表
+# ------------------------------------------------------------
+def _init_wave_db():
+    """
+    建立 wave_forecast table。
+
+    IF NOT EXISTS：
+    - 第一次執行時建立 table
+    - 之後重新啟動 Dashboard 不會重建或刪除既有資料
+    """
+
+    with psycopg2.connect(DATABASE_URL) as c:
+        with c.cursor() as cur:
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS wave_forecast (
+                    fetched_at TIMESTAMPTZ NOT NULL,
+                    valid_time TIMESTAMPTZ NOT NULL,
+                    model TEXT NOT NULL,
+                    lat DOUBLE PRECISION NOT NULL,
+                    lon DOUBLE PRECISION NOT NULL,
+                    wave_height_m DOUBLE PRECISION,
+                    wave_period_s DOUBLE PRECISION,
+                    wave_direction_deg DOUBLE PRECISION,
+
+                    PRIMARY KEY (
+                        fetched_at,
+                        valid_time,
+                        model,
+                        lat,
+                        lon
+                    )
+                )
+            """)
+
+        c.commit()
+
+
+# ------------------------------------------------------------
+# 2. 向 Windy Point Forecast API 取得波浪預報
+# ------------------------------------------------------------
+def fetch_windy_wave_forecast():
+    """
+    呼叫 Windy Point Forecast API，
+    取得 F2 representative point 的 wave forecast。
+
+    若 Windy 回傳 HTTP error，
+    會先印出 Windy response body，
+    方便判斷真正的 400 原因。
+    """
+
+    if not WINDY_API_KEY:
+        raise RuntimeError("WINDY_API_KEY is not configured")
+
+    # Windy Point Forecast request body
+    payload = {
+        "lat": F2_LAT,
+        "lon": F2_LON,
+        "model": WINDY_MODEL,
+
+        # Wave data 使用 surface level
+        "levels": ["surface"],
+
+        # waves 會回傳：
+        # - waves_height-surface
+        # - waves_period-surface
+        # - waves_direction-surface
+        "parameters": ["waves"],
+
+        "key": WINDY_API_KEY
+    }
+
+    # 明確指定 JSON Content-Type
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(
+        WINDY_URL,
+        json=payload,
+        headers=headers,
+        timeout=20
+    )
+
+    # --------------------------------------------------------
+    # Debug Windy API error
+    # --------------------------------------------------------
+    if not response.ok:
+        print("Windy API status:", response.status_code)
+        print("Windy API response:", response.text)
+
+    # HTTP 4xx / 5xx → exception
+    response.raise_for_status()
+
+    return response.json()
+
+
+# ------------------------------------------------------------
+# 3. 將 Windy JSON 轉換成 pandas DataFrame
+# ------------------------------------------------------------
+def parse_windy_wave(data):
+    """
+    將 Windy API response 轉成 DataFrame。
+
+    valid_time：
+        Forecast 所代表的時間。
+
+    注意：
+        保留 Windy API 原始時間解析度，
+        不在此處強制 resample 成 hourly。
+    """
+
+    ts = data.get("ts", [])
+
+    height = data.get(
+        "waves_height-surface",
+        []
+    )
+
+    period = data.get(
+        "waves_period-surface",
+        []
+    )
+
+    direction = data.get(
+        "waves_direction-surface",
+        []
+    )
+
+    # API 沒有 timestamp → 視為沒有有效 forecast
+    if not ts:
+        return pd.DataFrame()
+
+    wave_df = pd.DataFrame({
+        "valid_time": pd.to_datetime(
+            ts,
+            unit="ms",
+            utc=True
+        ),
+        "wave_height_m": height,
+        "wave_period_s": period,
+        "wave_direction_deg": direction
+    })
+
+    # 補上 metadata
+    wave_df["model"] = WINDY_MODEL
+    wave_df["lat"] = F2_LAT
+    wave_df["lon"] = F2_LON
+
+    return wave_df
+
+
+# ------------------------------------------------------------
+# 4. 將 Forecast Snapshot 存入 PostgreSQL
+# ------------------------------------------------------------
+def save_wave_forecast(wave_df):
+    """
+    儲存一次 Windy forecast snapshot。
+
+    fetched_at：
+        本次向 Windy API 抓取資料的時間。
+
+    valid_time：
+        每一筆 forecast 所代表的時間。
+
+    每次 forecast snapshot 都保留，
+    不覆寫之前取得的 forecast。
+    """
+
+    if wave_df.empty:
+        return
+
+    # 整批資料共用同一個 fetched_at
+    fetched_at = pd.Timestamp.now(tz="UTC")
+
+    rows = []
+
+    for _, r in wave_df.iterrows():
+
+        rows.append((
+            fetched_at.to_pydatetime(),
+            r["valid_time"].to_pydatetime(),
+            r["model"],
+            float(r["lat"]),
+            float(r["lon"]),
+
+            None
+            if pd.isna(r["wave_height_m"])
+            else float(r["wave_height_m"]),
+
+            None
+            if pd.isna(r["wave_period_s"])
+            else float(r["wave_period_s"]),
+
+            None
+            if pd.isna(r["wave_direction_deg"])
+            else float(r["wave_direction_deg"])
+        ))
+
+    with psycopg2.connect(DATABASE_URL) as c:
+        with c.cursor() as cur:
+
+            cur.executemany("""
+                INSERT INTO wave_forecast (
+                    fetched_at,
+                    valid_time,
+                    model,
+                    lat,
+                    lon,
+                    wave_height_m,
+                    wave_period_s,
+                    wave_direction_deg
+                )
+                VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s
+                )
+                ON CONFLICT DO NOTHING
+            """, rows)
+
+        c.commit()
+
+
+# ------------------------------------------------------------
+# 5. Windy Forecast 更新流程
+# ------------------------------------------------------------
+def update_windy_wave():
+    """
+    完整更新流程：
+
+    Windy API
+        ↓
+    JSON
+        ↓
+    DataFrame
+        ↓
+    PostgreSQL
+
+    Windy API 失敗時不讓整個 Dashboard crash。
+    """
+
+    try:
+
+        data = fetch_windy_wave_forecast()
+
+        wave_df = parse_windy_wave(data)
+
+        save_wave_forecast(wave_df)
+
+        print(
+            f"Windy wave forecast updated: "
+            f"{len(wave_df)} records"
+        )
+
+    except Exception as e:
+
+        # Windy 是 Dashboard enhancement，
+        # API 暫時失敗不應造成整個 Gantt 無法使用。
+        print(
+            f"Windy update failed: {e}"
+        )
+
+
+# ------------------------------------------------------------
+# 6. 讀取最新一次 Forecast Snapshot
+# ------------------------------------------------------------
+def load_latest_wave_forecast():
+    """
+    從 PostgreSQL 取得最新 fetched_at 的整批 forecast。
+
+    只顯示最新 snapshot，
+    但資料庫仍保留之前所有 snapshots。
+    """
+
+    query = """
+        SELECT
+            fetched_at,
+            valid_time,
+            model,
+            lat,
+            lon,
+            wave_height_m,
+            wave_period_s,
+            wave_direction_deg
+
+        FROM wave_forecast
+
+        WHERE fetched_at = (
+            SELECT MAX(fetched_at)
+            FROM wave_forecast
+        )
+
+        ORDER BY valid_time
+    """
+
+    with engine.connect() as c:
+        wave_df = pd.read_sql_query(
+            query,
+            c
+        )
+
+    if not wave_df.empty:
+
+        # PostgreSQL 儲存 UTC，
+        # Dashboard 顯示轉為台灣時間。
+        wave_df["valid_time"] = (
+            pd.to_datetime(
+                wave_df["valid_time"],
+                utc=True
+            )
+            .dt.tz_convert("Asia/Taipei")
+        )
+
+        wave_df["fetched_at"] = (
+            pd.to_datetime(
+                wave_df["fetched_at"],
+                utc=True
+            )
+            .dt.tz_convert("Asia/Taipei")
+        )
+
+    return wave_df
+
+
+# ------------------------------------------------------------
+# 7. 建立 Wave Forecast Plotly Chart
+# ------------------------------------------------------------
+def build_wave_chart():
+    """
+    建立 Dashboard 上方的 Windy Wave Forecast 圖。
+
+    Y-axis：
+        Forecast significant wave height (Hs)
+
+    Hover：
+        - Forecast Hs
+        - Wave period
+        - Wave direction
+    """
+
+    wave_df = load_latest_wave_forecast()
+
+    fig = go.Figure()
+
+    # --------------------------------------------------------
+    # 沒有 forecast data
+    # --------------------------------------------------------
+    if wave_df.empty:
+
+        fig.add_annotation(
+            text="Wave forecast unavailable",
+            x=0.5,
+            y=0.5,
+            xref="paper",
+            yref="paper",
+            showarrow=False
+        )
+
+    # --------------------------------------------------------
+    # 有 forecast data
+    # --------------------------------------------------------
+    else:
+
+        customdata = np.stack(
+            [
+                wave_df["wave_period_s"],
+                wave_df["wave_direction_deg"]
+            ],
+            axis=-1
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=wave_df["valid_time"],
+                y=wave_df["wave_height_m"],
+
+                mode="lines+markers",
+
+                name="Forecast Hs",
+
+                customdata=customdata,
+
+                hovertemplate=(
+                    "<b>%{x|%Y-%m-%d %H:%M}</b><br>"
+                    "Forecast Hs: %{y:.2f} m<br>"
+                    "Period: %{customdata[0]:.1f} s<br>"
+                    "Direction: %{customdata[1]:.0f}°"
+                    "<extra></extra>"
+                )
+            )
+        )
+
+    # --------------------------------------------------------
+    # Chart layout
+    # --------------------------------------------------------
+    fig.update_layout(
+        title=(
+            "Windy Wave Forecast — "
+            "F2 Representative Point"
+        ),
+
+        height=220,
+
+        margin=dict(
+            l=60,
+            r=20,
+            t=45,
+            b=20
+        ),
+
+        showlegend=False,
+
+        hovermode="x unified",
+
+        # 保留使用者 zoom / pan 狀態
+        uirevision="wave-keep"
+    )
+
+    fig.update_yaxes(
+        title="Hs (m)",
+        rangemode="tozero"
+    )
+
+    fig.update_xaxes(
+        title=None,
+        fixedrange=False
+    )
+
+    return fig
+
+
+# ============================================================
+# Windy startup initialization
+# ============================================================
+
+# 必須先建立 PostgreSQL table，
+# 否則 load_latest_wave_forecast() SELECT 時
+# 會出現：
+#   relation "wave_forecast" does not exist
+_init_wave_db()
+
+
+# 測試階段：
+# Dashboard 啟動時向 Windy API 更新一次 forecast。
+#
+# Production 後續可改成 scheduler / scheduled job，
+# 避免 Render restart 或多 worker 時重複呼叫 API。
+update_windy_wave()
 #%% Site analytics
 DATABASE_URL = os.getenv("DATABASE_URL")
 ANALYTICS_PATH = "/admin"
@@ -556,7 +1081,7 @@ app.layout = html.Div([
         html.H2("🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
                 style={"marginBottom": "5px"}),
 
-        html.Div(f"Engineering Scheduling & Progress Tracking System | v1.2.0 Beta | Updated {data_updated}",
+        html.Div(f"Engineering Scheduling & Progress Tracking System | v1.3.0 Beta | Updated {data_updated}",
                  style={"color": "gray", "fontSize": "14px"})
     ], style={"textAlign": "center", "marginBottom": "10px"}),
     # =========================================================
@@ -622,14 +1147,17 @@ app.layout = html.Div([
     html.Div([
         # 左側
         html.Div([
+        
+            # Gantt
             dcc.Graph(
                 id="gantt-chart",
                 config={
-                "scrollZoom": True,      # 滑鼠滾輪縮放
-                "displayModeBar": True,  # 顯示 Plotly 工具列
-                "doubleClick": "reset"   # 雙擊重設縮放
+                    "scrollZoom": True,
+                    "displayModeBar": True,
+                    "doubleClick": "reset"
                 }
             )
+        
         ],
         style={
             "width":"80%",
@@ -863,6 +1391,146 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         "Note: %{customdata[8]}"
         "<extra></extra>"
     )
+    
+    # =========================================================
+    # WINDY WAVE FORECAST
+    # =========================================================
+    # 從 PostgreSQL 讀取最新一次 Windy forecast snapshot。
+    #
+    # Wave forecast 與 Gantt 共用 x-axis（Date / Time），
+    # 但使用獨立的 yaxis2 顯示 Hs (m)。
+    #
+    # 因此：
+    #   yaxis  = Gantt lanes
+    #   yaxis2 = Forecast Hs
+    #   xaxis  = 共用時間軸
+    # =========================================================
+    
+    wave_df = load_latest_wave_forecast()
+    
+    if not wave_df.empty:
+    
+        # Hover 額外顯示：
+        #   customdata[0] = Wave Period
+        #   customdata[1] = Wave Direction
+        wave_customdata = np.stack(
+            [
+                wave_df["wave_period_s"],
+                wave_df["wave_direction_deg"]
+            ],
+            axis=-1
+        )
+    
+        fig.add_trace(
+            go.Scatter(
+                x=wave_df["valid_time"],
+                y=wave_df["wave_height_m"],
+    
+                # Wave 使用第二個 Y 軸
+                yaxis="y2",
+    
+                mode="lines+markers",
+    
+                name="Windy Forecast Hs",
+    
+                line=dict(
+                    color="#2563EB",
+                    width=1
+                ),
+                
+                marker=dict(
+                    color="#2563EB",
+                    size=2
+                ),
+    
+                customdata=wave_customdata,
+    
+                hovertemplate=(
+                    "<b>Windy Wave Forecast</b><br>"
+                    "Time: %{x|%Y-%m-%d %H:%M}<br>"
+                    "Forecast Hs: %{y:.2f} m<br>"
+                    "Period: %{customdata[0]:.1f} s<br>"
+                    "Direction: %{customdata[1]:.0f}°"
+                    "<extra></extra>"
+                ),
+    
+                # 不加入 Category legend，
+                # 避免跟 Inspection / WOW / Delay 混在一起
+                showlegend=False
+            )
+        )
+        # ---------------------------------------------------------
+        # Wave Hs horizontal reference lines
+        # 0, 1, 2, 3, 4, 5 m
+        # ---------------------------------------------------------
+        for hs_level in [0, 1, 2, 3, 4, 5]:
+            fig.add_shape(
+                type="line",
+        
+                # 橫跨整個時間軸
+                xref="paper",
+                x0=0,
+                x1=1,
+        
+                # 使用 Wave 的 Y-axis
+                yref="y2",
+                y0=hs_level,
+                y1=hs_level,
+        
+                # 黑色細實線
+                line=dict(
+                    color="black",
+                    width=0.3,
+                    dash="solid"
+                ),
+        
+                # 放在資料後方，不擋 Wave trace
+                layer="below"
+            )
+
+        # ---------------------------------------------------------
+        # Wave operational limit: Hs = 1.5 m
+        # ---------------------------------------------------------
+        fig.add_shape(
+            type="line",
+        
+            # 橫跨整個時間軸
+            xref="paper",
+            x0=0,
+            x1=1,
+        
+            # 使用 Wave 的 Y-axis
+            yref="y2",
+            y0=1.5,
+            y1=1.5,
+        
+            line=dict(
+                color="red",
+                width=1,
+                dash="solid"
+            )
+        )
+        
+        # Limit label
+        fig.add_annotation(
+            xref="paper",
+            x=0.01,
+        
+            yref="y2",
+            y=1.5,
+        
+            text="Hs Limit 1.5 m",
+        
+            showarrow=False,
+        
+            xanchor="left",
+            yanchor="bottom",
+        
+            font=dict(
+                color="red",
+                size=11
+            )
+        )
     # =========================================================
     # TODAY LINE
     # =========================================================
@@ -877,7 +1545,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     )
     fig.add_annotation(
         x=now,
-        y=1.02,
+        y=0.88,
         yref="paper",
         text=(
             f"<b>TODAY</b><br>"
@@ -903,7 +1571,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
             x0=date,
             x1=date,
             y0=0,
-            y1=1,
+            y1=0.84,
             yref="paper",
             line=dict(color=color,width=2,dash="dot")
         )
@@ -927,7 +1595,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         x0=pd.Timestamp("2026-06-20"),
         x1=pd.Timestamp("2026-09-12"),
         y0=0,
-        y1=1,
+        y1=0.84,
         xref="x",
         yref="paper",
         fillcolor="#696969",
@@ -1021,12 +1689,57 @@ def update_chart(selected_tasks, selected_cats, selected_date):
             bordercolor="blue",
             borderwidth=1
         )   
+    # =========================================================
+    # Y AXES
+    # =========================================================
+    # 同一個 Plotly Figure 分成上下兩個垂直區域：
+    #
+    #   yaxis2 → Windy Wave Forecast    上方 20%
+    #   yaxis  → Engineering Gantt      下方 76%
+    #
+    # 中間保留少量空間，避免 Wave 與 Gantt 擠在一起。
+    # =========================================================
+
+    # ---------------------------------------------------------
+    # Gantt Y-axis
+    # ---------------------------------------------------------
     fig.update_yaxes(
-    autorange="reversed",
-    tickmode="array",
-    tickvals=lane_order,
-    ticktext=ticktext,
-    title=None
+        autorange="reversed",
+        tickmode="array",
+        tickvals=lane_order,
+        ticktext=ticktext,
+        title=None,
+
+        # Gantt 使用圖面下方約 76%
+        domain=[0.00, 0.84]
+    )
+
+    # ---------------------------------------------------------
+    # Windy Wave Y-axis
+    # ---------------------------------------------------------
+    fig.update_layout(
+        yaxis2=dict(
+            title="Hs (m)",
+    
+            # Wave 區域壓扁：
+            # 原本 [0.82, 1.00] 約佔 18%
+            # 現在只佔最上方約 12%
+            domain=[0.88, 1.00],
+    
+            # 與 Gantt 共用 X 軸
+            anchor="x",
+    
+            # 固定顯示 0–3 m
+            range=[0, 5],
+    
+            # 固定刻度，閱讀比較直觀
+            tickmode="array",
+            tickvals=[0, 1, 2, 3, 4, 5],
+    
+            showgrid=False,
+            zeroline=False,
+            fixedrange=False
+        )
     )
     fig.update_xaxes(
     rangeslider_visible=True,
@@ -1046,6 +1759,30 @@ def show_detail(clickData):
     if clickData is None:
         return html.Div(
             "Click a bar to view details",
+            style={
+                "fontSize": "12px",
+                "color": "#6b7280"
+            }
+        )
+    # =========================================================
+    # Ignore non-Gantt traces
+    # =========================================================
+    # Windy Wave trace 也位於 gantt-chart figure 中，
+    # 但它的 customdata 只有：
+    #   [wave_period_s, wave_direction_deg]
+    #
+    # Gantt bar 則有完整的 11 個 customdata fields。
+    #
+    # 因此點擊 Wave marker 時，
+    # 不進入 Gantt detail parser，避免 IndexError。
+    # =========================================================
+    
+    point = clickData["points"][0]
+    customdata = point.get("customdata")
+    
+    if customdata is None or len(customdata) < 11:
+        return html.Div(
+            "Click a Gantt bar to view task details",
             style={
                 "fontSize": "12px",
                 "color": "#6b7280"
@@ -1248,7 +1985,7 @@ def show_detail(clickData):
         )
     ])
 #%%Run server
-# render佈署
+render佈署
 if __name__ == "__main__":
     app.run(
         debug=False,
