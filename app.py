@@ -84,15 +84,16 @@ engine = create_engine(
 # 功能：
 #   1. 從 Windy Point Forecast API 取得 F2 代表點的波浪預報
 #   2. 將 API JSON 轉換成 pandas DataFrame
-#   3. 將每次取得的 forecast snapshot 儲存至 PostgreSQL
-#   4. 讀取最新一次 forecast snapshot
+#   3. 將最新 wave forecast 儲存至 PostgreSQL
+#   4. 讀取目前最新 forecast
 #   5. 建立 Plotly 波高圖，供 Dashboard 顯示
 #
 # 注意：
 #   - 此處資料為 Windy Forecast，不是現地觀測值
 #   - fetched_at = 取得預報的時間
 #   - valid_time = 預報所代表的時間
-#   - 保留每次 snapshot，不覆寫舊 forecast
+#   - 相同 valid_time 的 forecast 以最新資料覆寫
+#   - fetched_at = 該 forecast 最後更新時間
 # ============================================================
 
 WINDY_API_KEY = os.getenv("WINDY_API_KEY")
@@ -133,7 +134,6 @@ def _init_wave_db():
                     wave_direction_deg DOUBLE PRECISION,
 
                     PRIMARY KEY (
-                        fetched_at,
                         valid_time,
                         model,
                         lat,
@@ -264,7 +264,7 @@ def parse_windy_wave(data):
 # ------------------------------------------------------------
 def save_wave_forecast(wave_df):
     """
-    儲存一次 Windy forecast snapshot。
+    儲存目前最新的 Windy forecast。
 
     fetched_at：
         本次向 Windy API 抓取資料的時間。
@@ -272,8 +272,8 @@ def save_wave_forecast(wave_df):
     valid_time：
         每一筆 forecast 所代表的時間。
 
-    每次 forecast snapshot 都保留，
-    不覆寫之前取得的 forecast。
+    相同 valid_time / model / lat / lon 的 forecast
+    以最新取得的資料覆寫。
     """
 
     if wave_df.empty:
@@ -324,7 +324,12 @@ def save_wave_forecast(wave_df):
                     %s, %s, %s, %s,
                     %s, %s, %s, %s
                 )
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (valid_time, model, lat, lon)
+                DO UPDATE SET
+                    fetched_at = EXCLUDED.fetched_at,
+                    wave_height_m = EXCLUDED.wave_height_m,
+                    wave_period_s = EXCLUDED.wave_period_s,
+                    wave_direction_deg = EXCLUDED.wave_direction_deg
             """, rows)
 
         c.commit()
@@ -375,10 +380,9 @@ def update_windy_wave():
 # ------------------------------------------------------------
 def load_latest_wave_forecast():
     """
-    從 PostgreSQL 取得最新 fetched_at 的整批 forecast。
+    從 PostgreSQL 取得 F2 representative point 目前保存的最新 forecast。
 
-    只顯示最新 snapshot，
-    但資料庫仍保留之前所有 snapshots。
+    相同 valid_time 只保留最新資料，因此不再依 fetched_at snapshot 篩選。
     """
 
     query = """
@@ -394,10 +398,9 @@ def load_latest_wave_forecast():
 
         FROM wave_forecast
 
-        WHERE fetched_at = (
-            SELECT MAX(fetched_at)
-            FROM wave_forecast
-        )
+        WHERE model = %(model)s
+          AND lat = %(lat)s
+          AND lon = %(lon)s
 
         ORDER BY valid_time
     """
@@ -405,7 +408,12 @@ def load_latest_wave_forecast():
     with engine.connect() as c:
         wave_df = pd.read_sql_query(
             query,
-            c
+            c,
+            params={
+                "model": WINDY_MODEL,
+                "lat": F2_LAT,
+                "lon": F2_LON
+            }
         )
 
     if not wave_df.empty:
