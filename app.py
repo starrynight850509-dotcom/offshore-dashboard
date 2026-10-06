@@ -1985,7 +1985,7 @@ def show_detail(clickData):
         )
     ])
 #%%Run server
-render佈署
+#render佈署
 if __name__ == "__main__":
     app.run(
         debug=False,
