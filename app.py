@@ -580,10 +580,8 @@ def get_windy_last_updated():
     """
     取得 F2 representative point 的 Windy forecast
     最後更新時間。
-
     只查 MAX(fetched_at)，不載入整批 forecast。
     """
-
     query = text("""
         SELECT MAX(fetched_at) AS last_updated
         FROM wave_forecast
@@ -591,7 +589,6 @@ def get_windy_last_updated():
           AND lat = :lat
           AND lon = :lon
     """)
-
     with engine.connect() as c:
         result = c.execute(
             query,
@@ -1153,7 +1150,7 @@ app.layout = html.Div([
         # 內容由 callback 自動更新
         html.Div(
             id="windy-update-status",
-            children="Windy Forecast: Checking...",
+            children="Windy Forecast: Checking... | Testing API – Not for operational use",
             style={
                 "color": "#6b7280",
                 "fontSize": "12px",
@@ -2093,8 +2090,8 @@ def update_windy_status(_):
         ).total_seconds() / 3600
 
         status = (
-            f"Windy Forecast Updated "
-            f"{last_updated:%Y-%m-%d %H:%M}"
+            f"Windy Forecast Updated {last_updated:%Y-%m-%d %H:%M}"
+            " | Testing API – Not for operational use"
         )
 
         if age_hours > 6:
