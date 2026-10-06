@@ -6,10 +6,20 @@ cd /d "C:\Users\ali.chang\Desktop\Ali正力\專案\S2603BEX50\offshore gantt"
 if errorlevel 1 goto error
 
 echo ==============================
-echo 1. Stage and commit local changes
+echo 1. Check local changes
+echo ==============================
+git status --short
+if errorlevel 1 goto error
+
+echo.
+echo ==============================
+echo 2. Stage and commit
 echo ==============================
 git add .
 if errorlevel 1 goto error
+
+echo Files staged for commit:
+git diff --cached --name-only
 
 git diff --cached --quiet
 if errorlevel 1 (
@@ -21,14 +31,14 @@ if errorlevel 1 (
 
 echo.
 echo ==============================
-echo 2. Pull latest changes
+echo 3. Pull latest changes
 echo ==============================
 git pull --rebase origin main
 if errorlevel 1 goto error
 
 echo.
 echo ==============================
-echo 3. Push to GitHub
+echo 4. Push to GitHub
 echo ==============================
 git push origin main
 if errorlevel 1 goto error
@@ -44,4 +54,5 @@ echo Please check the error above.
 
 :end
 pause
+
 
