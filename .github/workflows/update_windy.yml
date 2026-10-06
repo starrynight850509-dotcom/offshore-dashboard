@@ -1,0 +1,35 @@
+
+name: Update F2 Windy Forecast
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-wave:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests psycopg2-binary python-dotenv
+
+      - name: Update Windy forecast
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          WINDY_API_KEY: ${{ secrets.WINDY_API_KEY }}
+        run: python update_wave.py
