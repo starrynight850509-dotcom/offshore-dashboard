@@ -609,6 +609,7 @@ def get_windy_last_updated():
 
     return last_updated.tz_convert("Asia/Taipei")
     
+
 #%% Site analytics
 DATABASE_URL = os.getenv("DATABASE_URL")
 ANALYTICS_PATH = "/admin"
@@ -627,6 +628,7 @@ SQLALCHEMY_URL = DATABASE_URL.replace(
 
 engine = create_engine(SQLALCHEMY_URL, pool_pre_ping=True)
 
+
 def _adb():
     c = psycopg2.connect(DATABASE_URL)
     with c.cursor() as cur:
@@ -642,6 +644,7 @@ def _adb():
     c.commit()
     return c
 
+
 def _check_auth():
     auth = request.authorization
     if not auth or not ANALYTICS_USER or not ANALYTICS_PASSWORD:
@@ -651,11 +654,13 @@ def _check_auth():
         and secrets.compare_digest(auth.password, ANALYTICS_PASSWORD)
     )
 
+
 def _auth_required():
     return Response(
         "Authentication required.", 401,
         {"WWW-Authenticate": 'Basic realm="Site Analytics"'}
     )
+
 
 def _client_info():
     ua = request.headers.get("User-Agent", "")
@@ -664,15 +669,26 @@ def _client_info():
     ).split(",")[0].strip()
 
     u = ua.lower()
-    device = "Mobile" if any(x in u for x in ["mobile", "android", "iphone"]) else "Desktop"
 
-    if "edg/" in u: browser = "Edge"
-    elif "chrome/" in u: browser = "Chrome"
-    elif "firefox/" in u: browser = "Firefox"
-    elif "safari/" in u: browser = "Safari"
-    else: browser = "Other"
+    device = (
+        "Mobile"
+        if any(x in u for x in ["mobile", "android", "iphone"])
+        else "Desktop"
+    )
+
+    if "edg/" in u:
+        browser = "Edge"
+    elif "chrome/" in u:
+        browser = "Chrome"
+    elif "firefox/" in u:
+        browser = "Firefox"
+    elif "safari/" in u:
+        browser = "Safari"
+    else:
+        browser = "Other"
 
     return ip, device, browser
+
 
 def _track():
     if request.method != "GET" or request.path != "/":
@@ -691,7 +707,9 @@ def _track():
     if not ua or any(x in u for x in blocked):
         return
 
-    if not any(x in u for x in ["edg/", "chrome/", "firefox/", "safari/"]):
+    if not any(
+        x in u for x in ["edg/", "chrome/", "firefox/", "safari/"]
+    ):
         return
 
     visitor, device, browser = _client_info()
@@ -700,16 +718,22 @@ def _track():
         with _adb() as c:
             with c.cursor() as cur:
                 cur.execute(
-                    """INSERT INTO page_views
+                    """
+                    INSERT INTO page_views
                     (ts, visitor, device, browser, path)
-                    VALUES (%s, %s, %s, %s, %s)""",
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
                     (
                         datetime.now(ZoneInfo("Asia/Taipei")),
-                        visitor, device, browser, "/"
+                        visitor,
+                        device,
+                        browser,
+                        "/"
                     )
                 )
     except psycopg2.Error:
         pass
+
 
 def _sessionize(v):
     if v.empty:
@@ -717,29 +741,52 @@ def _sessionize(v):
         return v
 
     v = v.sort_values(["visitor", "ts"]).copy()
+
     gap = v.groupby("visitor")["ts"].diff()
 
-    new_session = gap.isna() | (gap > pd.Timedelta(minutes=SESSION_MINUTES))
-    v["_session"] = new_session.groupby(v["visitor"]).cumsum().astype(int)
-    v["session_id"] = v["visitor"] + "-" + v["_session"].astype(str)
+    new_session = (
+        gap.isna()
+        | (gap > pd.Timedelta(minutes=SESSION_MINUTES))
+    )
+
+    v["_session"] = (
+        new_session.groupby(v["visitor"])
+        .cumsum()
+        .astype(int)
+    )
+
+    v["session_id"] = (
+        v["visitor"] + "-" + v["_session"].astype(str)
+    )
 
     return v.drop(columns="_session")
+
 
 def _analytics():
     with engine.connect() as c:
         v = pd.read_sql_query(
-            "SELECT ts, visitor, device, browser, path FROM page_views ORDER BY ts",
+            """
+            SELECT ts, visitor, device, browser, path
+            FROM page_views
+            ORDER BY ts
+            """,
             c
         )
 
     if not v.empty:
-        v["ts"] = pd.to_datetime(v["ts"], utc=True).dt.tz_convert("Asia/Taipei")
+        v["ts"] = (
+            pd.to_datetime(v["ts"], utc=True)
+            .dt.tz_convert("Asia/Taipei")
+        )
+
         v = _sessionize(v)
 
         now = pd.Timestamp.now(tz="Asia/Taipei")
+
         today = v[v["ts"] >= now.normalize()]
         d7 = v[v["ts"] >= now - pd.Timedelta(days=7)]
         d30 = v[v["ts"] >= now - pd.Timedelta(days=30)]
+
     else:
         today = d7 = d30 = v
 
@@ -750,58 +797,191 @@ def _analytics():
     ]
 
     cards = ""
+
     for title, data in groups:
         views = len(data)
-        unique = data["visitor"].nunique() if not data.empty else 0
-        sessions = data["session_id"].nunique() if not data.empty else 0
+
+        unique = (
+            data["visitor"].nunique()
+            if not data.empty else 0
+        )
+
+        sessions = (
+            data["session_id"].nunique()
+            if not data.empty else 0
+        )
 
         cards += f"""
         <div class="section-title">{title}</div>
+
         <div class="card-row">
-            <div class="card"><b>{views}</b><br>Page Views</div>
-            <div class="card"><b>{unique}</b><br>Unique IPs</div>
-            <div class="card"><b>{sessions}</b><br>Sessions</div>
+            <div class="card">
+                <b>{views}</b><br>Page Views
+            </div>
+
+            <div class="card">
+                <b>{unique}</b><br>Unique IPs
+            </div>
+
+            <div class="card">
+                <b>{sessions}</b><br>Sessions
+            </div>
         </div>
         """
 
+    # Recent Page Views - All records
     if not v.empty:
-        recent = v.sort_values("ts", ascending=False).head(50).copy()
-        recent["ts"] = recent["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
-        recent = recent[
-            ["ts", "visitor", "device", "browser", "session_id"]
-        ].rename(columns={"visitor": "ip"}).to_html(index=False)
+        recent = (
+            v.sort_values("ts", ascending=False)
+            .copy()
+        )
+
+        recent["ts"] = (
+            recent["ts"]
+            .dt.strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+        recent = (
+            recent[
+                [
+                    "ts",
+                    "visitor",
+                    "device",
+                    "browser",
+                    "session_id"
+                ]
+            ]
+            .rename(columns={"visitor": "ip"})
+            .to_html(index=False, classes="analytics-table")
+        )
+
     else:
         recent = "<p>No page views yet.</p>"
 
     return f"""
     <style>
-        body {{font-family:Arial; margin:30px; background:#f8fafc; color:#111827}}
-        .section-title {{font-size:18px; font-weight:bold; margin:20px 0 5px}}
-        .card-row {{display:flex; gap:10px}}
-        .card {{
-            background:white; border:1px solid #ddd; border-radius:10px;
-            padding:15px 25px; text-align:center; min-width:140px
+        body {{
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background: #f8fafc;
+            color: #111827;
         }}
-        .card b {{font-size:26px; color:#1f77b4}}
-        table {{background:white; border-collapse:collapse; margin-top:20px}}
-        td,th {{padding:7px; border:1px solid #ddd}}
-        .note {{color:#6b7280; font-size:13px}}
+
+        .section-title {{
+            font-size: 18px;
+            font-weight: bold;
+            margin: 20px 0 5px;
+        }}
+
+        .card-row {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }}
+
+        .card {{
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 15px 25px;
+            text-align: center;
+            min-width: 140px;
+        }}
+
+        .card b {{
+            font-size: 26px;
+            color: #1f77b4;
+        }}
+
+        .note {{
+            color: #6b7280;
+            font-size: 13px;
+        }}
+
+        /* Recent Page Views */
+
+        .table-container {{
+            width: fit-content;
+            max-width: 100%;
+            max-height: 350px;
+            overflow-y: auto;
+            overflow-x: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+        }}
+
+        .analytics-table {{
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 0;
+            font-size: 14px;
+            white-space: nowrap;
+        }}
+
+        .analytics-table th,
+        .analytics-table td {{
+            padding: 8px 10px;
+            border-right: 1px solid #e5e7eb;
+            border-bottom: 1px solid #e5e7eb;
+            text-align: left;
+        }}
+
+        .analytics-table th {{
+            position: sticky;
+            top: 0;
+            background: #e2e8f0;
+            z-index: 2;
+            font-weight: bold;
+        }}
+
+        .analytics-table tr:hover td {{
+            background: #eff6ff;
+        }}
+
+        .table-container::-webkit-scrollbar {{
+            width: 8px;
+            height: 8px;
+        }}
+
+        .table-container::-webkit-scrollbar-thumb {{
+            background: #94a3b8;
+            border-radius: 6px;
+        }}
+
+        .table-container::-webkit-scrollbar-track {{
+            background: #f1f5f9;
+        }}
     </style>
 
     <h1>Site Analytics</h1>
+
     <p>Asia/Taipei · Visitor = Public IP</p>
+
     <p class="note">
         Page View = dashboard homepage load ·
-        Session = same IP activity grouped within {SESSION_MINUTES} minutes
+        Session = same IP activity grouped within
+        {SESSION_MINUTES} minutes
     </p>
 
     {cards}
 
     <h3>Recent Page Views</h3>
-    {recent}
 
-    <p><a href="/">&larr; Back to Dashboard</a></p>
+    <div class="table-container">
+        {recent}
+    </div>
+
+    <p class="note">
+        Showing all {len(v)} page views ·
+        Scroll to view older records
+    </p>
+
+    <p>
+        <a href="/">&larr; Back to Dashboard</a>
+    </p>
     """
+
 
 #%%Color map
 color_map = {
@@ -1139,7 +1319,7 @@ app.layout = html.Div([
     
         html.Div(
             f"Engineering Scheduling & Progress Tracking System | "
-            f"v1.4.1 Beta | Updated {data_updated}",
+            f"v1.4.2 Beta | Updated {data_updated}",
             style={
                 "color": "gray",
                 "fontSize": "14px"
