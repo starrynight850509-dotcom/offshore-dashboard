@@ -1820,14 +1820,16 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     
         # Hover 額外顯示：
         #   customdata[0] = Wave Period
-        #   customdata[1] = Wave Direction
-        wave_customdata = np.stack(
-            [
-                wave_df["wave_period_s"],
-                wave_df["wave_direction_deg"]
-            ],
-            axis=-1
+        #   customdata[1] = Windy Wave Direction (FROM)
+        #   text = 浪實際前進方向箭頭 (TO)
+        wave_df = wave_df.copy()
+        wave_df["wave_arrow"] = (
+            wave_df["wave_direction_deg"].apply(wave_arrow)
         )
+
+        wave_customdata = wave_df[
+            ["wave_period_s", "wave_direction_deg"]
+        ].to_numpy()
     
         fig.add_trace(
             go.Scatter(
@@ -1853,13 +1855,14 @@ def update_chart(selected_tasks, selected_cats, selected_date):
                 ),
     
                 customdata=wave_customdata,
+                text=wave_df["wave_arrow"],
     
                 hovertemplate=(
                     "<b>Windy Wave Forecast</b><br>"
                     "Time: %{x|%Y-%m-%d %H:%M}<br>"
                     "Forecast Hs: %{y:.2f} m<br>"
                     "Period: %{customdata[0]:.1f} s<br>"
-                    "Direction: %{customdata[1]:.0f}°"
+                    "Direction: %{customdata[1]:.0f}° %{text}"
                     "<extra></extra>"
                 ),
     
