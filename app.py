@@ -1708,7 +1708,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
                 line=dict(
                     color="#2563EB",
                     width=1,
-                    dash="dash"
+                    dash="3px,2px"
                 ),
                 
                 marker=dict(
