@@ -444,13 +444,13 @@ def load_latest_wave_forecast():
 # ------------------------------------------------------------
 def wave_arrow(deg):
     # Windy direction = FROM
-    # 箭頭表示浪實際前進方向 = +180°
+    # 顯示浪實際前進方向 = +180°
     travel_deg = (deg + 180) % 360
 
-    arrows = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"]
+    directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     idx = int((travel_deg + 22.5) // 45) % 8
 
-    return arrows[idx]
+    return directions[idx]
 
 
 def build_wave_chart():
@@ -487,39 +487,40 @@ def build_wave_chart():
     # 有 forecast data
     # --------------------------------------------------------
     else:
-    
+
         # Windy direction = FROM
-        # 箭頭表示浪實際前進方向
+        # 轉換成浪實際前進方向
         wave_df["wave_arrow"] = (
             wave_df["wave_direction_deg"].apply(wave_arrow)
         )
-    
-        # 預先組好 Direction 顯示文字，例如：37° ↙
+
+        # 例如：37° (to SW)
         wave_df["direction_text"] = (
             wave_df["wave_direction_deg"]
             .round(0)
             .astype(int)
             .astype(str)
-            + "° "
+            + "° (to "
             + wave_df["wave_arrow"]
+            + ")"
         )
-    
+
         customdata = wave_df[
             ["wave_period_s"]
         ].to_numpy()
-    
+
         fig.add_trace(
             go.Scatter(
                 x=wave_df["valid_time"],
                 y=wave_df["wave_height_m"],
-    
+
                 mode="lines+markers",
-    
+
                 name="Forecast Hs",
-    
+
                 customdata=customdata,
                 text=wave_df["direction_text"],
-    
+
                 hovertemplate=(
                     "<b>Windy Wave Forecast</b><br>"
                     "Time: %{x|%Y-%m-%d %H:%M}<br>"
