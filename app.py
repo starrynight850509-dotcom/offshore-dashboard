@@ -881,12 +881,14 @@ def _analytics():
         }}
 
         .card {{
+            flex: 1;
+            min-width: 0;
             background: white;
             border: 1px solid #ddd;
             border-radius: 10px;
-            padding: 15px 25px;
+            padding: 15px 12px;
             text-align: center;
-            min-width: 140px;
+            box-sizing: border-box;
         }}
 
         .card b {{
@@ -899,88 +901,104 @@ def _analytics():
             font-size: 13px;
         }}
 
-        /* Analytics two-column layout */
+        /* Two-column layout */
 
         .analytics-layout {{
-            display: flex;
-            align-items: flex-start;
+            display: grid;
+            grid-template-columns:
+                minmax(0, 1fr) minmax(0, 1fr);
             gap: 30px;
+            align-items: start;
         }}
 
-        .analytics-summary {{
-            flex: 0 0 720px;
-            min-width: 0;
-        }}
-
+        .analytics-summary,
         .analytics-history {{
-            flex: 1;
             min-width: 0;
         }}
 
         .analytics-history h3 {{
-            margin-top: 20px;
-        }}
-
-        @media (max-width: 1200px) {{
-            .analytics-layout {{
-                flex-direction: column;
-            }}
-
-            .analytics-summary {{
-                flex: none;
-                width: 100%;
-            }}
-
-            .analytics-history {{
-                width: 100%;
-            }}
+            font-size: 18px;
+            margin: 20px 0 5px;
         }}
 
         /* Recent Page Views */
 
         .table-container {{
-            width: fit-content;
+            width: 100%;
             max-width: 100%;
             max-height: 350px;
             overflow-y: auto;
-            overflow-x: auto;
+            overflow-x: hidden;
             border: 1px solid #ddd;
-            border-radius: 8px;
+            border-radius: 10px;
             background: white;
+            box-sizing: border-box;
             direction: ltr;
         }}
 
         .analytics-table {{
+            width: 100%;
+            table-layout: fixed;
             border-collapse: separate;
             border-spacing: 0;
             margin: 0;
-            font-size: 14px;
-            white-space: nowrap;
+            font-size: 13px;
         }}
 
         .analytics-table th,
         .analytics-table td {{
-            padding: 8px 10px;
+            padding: 10px 8px;
             border-right: 1px solid #e5e7eb;
             border-bottom: 1px solid #e5e7eb;
             text-align: left;
+            overflow-wrap: anywhere;
+            word-break: normal;
+            vertical-align: middle;
         }}
 
         .analytics-table th {{
             position: sticky;
             top: 0;
-            background: #e2e8f0;
+            background: #f1f5f9;
             z-index: 2;
             font-weight: bold;
+        }}
+
+        .analytics-table th:last-child,
+        .analytics-table td:last-child {{
+            border-right: none;
         }}
 
         .analytics-table tr:hover td {{
             background: #eff6ff;
         }}
 
+        /* Column widths */
+
+        .analytics-table th:nth-child(1) {{
+            width: 28%;
+        }}
+
+        .analytics-table th:nth-child(2) {{
+            width: 20%;
+        }}
+
+        .analytics-table th:nth-child(3) {{
+            width: 13%;
+        }}
+
+        .analytics-table th:nth-child(4) {{
+            width: 13%;
+        }}
+
+        .analytics-table th:nth-child(5) {{
+            width: 26%;
+        }}
+
+        /* Vertical scrollbar */
+
         .table-container::-webkit-scrollbar {{
             width: 8px;
-            height: 8px;
         }}
 
         .table-container::-webkit-scrollbar-thumb {{
@@ -990,6 +1008,47 @@ def _analytics():
 
         .table-container::-webkit-scrollbar-track {{
             background: #f1f5f9;
+        }}
+
+        /* Responsive layout */
+
+        @media (max-width: 1200px) {{
+            .analytics-layout {{
+                grid-template-columns: 1fr;
+            }}
+
+            .analytics-summary,
+            .analytics-history {{
+                width: 100%;
+            }}
+        }}
+
+        @media (max-width: 600px) {{
+            body {{
+                margin: 16px;
+            }}
+
+            .card-row {{
+                gap: 6px;
+            }}
+
+            .card {{
+                padding: 12px 5px;
+                font-size: 12px;
+            }}
+
+            .card b {{
+                font-size: 22px;
+            }}
+
+            .analytics-table {{
+                font-size: 11px;
+            }}
+
+            .analytics-table th,
+            .analytics-table td {{
+                padding: 7px 4px;
+            }}
         }}
     </style>
 
@@ -1032,6 +1091,7 @@ def _analytics():
         <a href="/">&larr; Back to Dashboard</a>
     </p>
     """
+
 
 
 
