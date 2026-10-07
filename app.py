@@ -1758,7 +1758,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
                 name="Windy Forecast Hs",
     
                 line=dict(
-                    color="#2563EB",
+                    color="#111827",
                     width=1,
                     dash="3px,2px"
                 ),
