@@ -2288,7 +2288,7 @@ def update_windy_status(_):
         if age_minutes > 90:
             hours, minutes = divmod(int(age_minutes), 60)
             return status_line(
-                f"Delayed: {hours}h {minutes:02d}m (Last Updated: {updated_label})",
+                f"Stale: {hours}h {minutes:02d}m (Last Updated: {updated_label})",
                 "#d97706"
             )
 
