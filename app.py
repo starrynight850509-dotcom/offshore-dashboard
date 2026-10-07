@@ -1456,7 +1456,7 @@ app.layout = html.Div([
         html.Div(
             f"Engineering Scheduling & Progress Tracking System | "
             f"v1.4.2 Beta | "
-            f"Data Updated: {data_updated}",
+            f"Schedule Data Updated: {data_updated}",
             style={
                 "color": "#6b7280",
                 "fontSize": "12px",
@@ -2429,11 +2429,11 @@ def update_windy_status(_):
         if age_minutes > 90:
             hours, minutes = divmod(int(age_minutes), 60)
             return status_line(
-                f"Stale: {hours}h {minutes:02d}m (Last Updated: {updated_label})",
+                f"Stale: {hours}h {minutes:02d}m (Forecast Last Updated: {updated_label})",
                 "#d97706"
             )
 
-        return status_line(f"Updated: {updated_label}", "#6b7280")
+        return status_line(f"Forecast Updated: {updated_label}", "#6b7280")
 
     except Exception as e:
         print(f"Windy status check failed: {e}")
