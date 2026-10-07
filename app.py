@@ -610,6 +610,7 @@ def get_windy_last_updated():
     return last_updated.tz_convert("Asia/Taipei")
     
 
+
 #%% Site analytics
 DATABASE_URL = os.getenv("DATABASE_URL")
 ANALYTICS_PATH = "/admin"
@@ -898,6 +899,43 @@ def _analytics():
             font-size: 13px;
         }}
 
+        /* Analytics two-column layout */
+
+        .analytics-layout {{
+            display: flex;
+            align-items: flex-start;
+            gap: 30px;
+        }}
+
+        .analytics-summary {{
+            flex: 0 0 720px;
+            min-width: 0;
+        }}
+
+        .analytics-history {{
+            flex: 1;
+            min-width: 0;
+        }}
+
+        .analytics-history h3 {{
+            margin-top: 20px;
+        }}
+
+        @media (max-width: 1200px) {{
+            .analytics-layout {{
+                flex-direction: column;
+            }}
+
+            .analytics-summary {{
+                flex: none;
+                width: 100%;
+            }}
+
+            .analytics-history {{
+                width: 100%;
+            }}
+        }}
+
         /* Recent Page Views */
 
         .table-container {{
@@ -909,6 +947,7 @@ def _analytics():
             border: 1px solid #ddd;
             border-radius: 8px;
             background: white;
+            direction: ltr;
         }}
 
         .analytics-table {{
@@ -964,23 +1003,36 @@ def _analytics():
         {SESSION_MINUTES} minutes
     </p>
 
-    {cards}
+    <div class="analytics-layout">
 
-    <h3>Recent Page Views</h3>
+        <!-- Left: Summary -->
+        <div class="analytics-summary">
+            {cards}
+        </div>
 
-    <div class="table-container">
-        {recent}
+        <!-- Right: Recent Page Views -->
+        <div class="analytics-history">
+
+            <h3>Recent Page Views</h3>
+
+            <div class="table-container">
+                {recent}
+            </div>
+
+            <p class="note">
+                Showing all {len(v)} page views ·
+                Scroll to view older records
+            </p>
+
+        </div>
+
     </div>
-
-    <p class="note">
-        Showing all {len(v)} page views ·
-        Scroll to view older records
-    </p>
 
     <p>
         <a href="/">&larr; Back to Dashboard</a>
     </p>
     """
+
 
 
 #%%Color map
