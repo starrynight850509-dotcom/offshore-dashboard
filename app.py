@@ -1521,12 +1521,13 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     
                 line=dict(
                     color="#2563EB",
-                    width=1
+                    width=1,
+                    dash="dash"
                 ),
                 
                 marker=dict(
                     color="#2563EB",
-                    size=2
+                    size=3
                 ),
     
                 customdata=wave_customdata,
