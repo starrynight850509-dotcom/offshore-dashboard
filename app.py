@@ -442,6 +442,15 @@ def load_latest_wave_forecast():
 # ------------------------------------------------------------
 # 7. 建立 Wave Forecast Plotly Chart
 # ------------------------------------------------------------
+def wave_arrow(deg):
+    # Windy direction = FROM
+    # 箭頭顯示浪實際前進方向 = +180°
+    travel_deg = (deg + 180) % 360
+
+    arrows = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"]
+    idx = int((travel_deg + 22.5) // 45) % 8
+    return arrows[idx]
+
 def build_wave_chart():
     """
     建立 Dashboard 上方的 Windy Wave Forecast 圖。
@@ -456,7 +465,7 @@ def build_wave_chart():
     """
 
     wave_df = load_latest_wave_forecast()
-
+    wave_df["wave_arrow"] = wave_df["wave_direction_deg"].apply(wave_arrow)
     fig = go.Figure()
 
     # --------------------------------------------------------
@@ -481,7 +490,8 @@ def build_wave_chart():
         customdata = np.stack(
             [
                 wave_df["wave_period_s"],
-                wave_df["wave_direction_deg"]
+                wave_df["wave_direction_deg"],
+                wave_df["wave_arrow"]
             ],
             axis=-1
         )
@@ -501,7 +511,7 @@ def build_wave_chart():
                     "<b>%{x|%Y-%m-%d %H:%M}</b><br>"
                     "Forecast Hs: %{y:.2f} m<br>"
                     "Period: %{customdata[0]:.1f} s<br>"
-                    "Direction: %{customdata[1]:.0f}°"
+                    "Direction: %{customdata[1]:.0f}° %{customdata[2]}"
                     "<extra></extra>"
                 )
             )
