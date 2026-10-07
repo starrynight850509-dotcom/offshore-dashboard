@@ -33,3 +33,55 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           WINDY_API_KEY: ${{ secrets.WINDY_API_KEY }}
         run: python update_wave.py
+
+      # ==============================
+      # SUCCESS EMAIL
+      # ==============================
+      - name: Send success email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "F2 Windy Forecast Updated - SUCCESS"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_USERNAME }}
+          body: |
+            F2 Windy forecast update completed successfully.
+
+            Status: SUCCESS
+            Trigger: ${{ github.event_name }}
+            Repository: ${{ github.repository }}
+            Run ID: ${{ github.run_id }}
+
+            Run details:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      # ==============================
+      # FAILURE EMAIL
+      # ==============================
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "F2 Windy Forecast Updated - FAILED"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_USERNAME }}
+          body: |
+            F2 Windy forecast update failed.
+
+            Status: FAILED
+            Trigger: ${{ github.event_name }}
+            Repository: ${{ github.repository }}
+            Run ID: ${{ github.run_id }}
+
+            Run details:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
