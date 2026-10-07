@@ -1319,10 +1319,14 @@ app.layout = html.Div([
     
         html.Div(
             f"Engineering Scheduling & Progress Tracking System | "
-            f"v1.4.2 Beta | Updated {data_updated}",
+            f"v1.4.2 Beta | Admin UI Improvements | "
+            f"Data Updated: {data_updated}",
             style={
-                "color": "gray",
-                "fontSize": "14px"
+                "color": "#6b7280",
+                "fontSize": "12px",
+                "marginTop": "3px",
+                "fontWeight": "400",
+                "lineHeight": "1.5"
             }
         ),
     
@@ -1330,11 +1334,13 @@ app.layout = html.Div([
         # 內容由 callback 自動更新
         html.Div(
             id="windy-update-status",
-            children="Windy Forecast: Checking... | Testing API – Not for operational use",
+            children="Windy Forecast | Checking... | Testing API – Not for Operational Use",
             style={
                 "color": "#6b7280",
                 "fontSize": "12px",
-                "marginTop": "3px"
+                "marginTop": "3px",
+                "fontWeight": "400",
+                "lineHeight": "1.5"
             }
         )
     
@@ -2252,37 +2258,46 @@ def show_detail(clickData):
         )
     ])
 #%%windy-update-status
+# 每 5 分鐘檢查一次 PostgreSQL 的最新 Windy 資料時間。
+# 灰色：90 分鐘內；橘色：超過 90 分鐘；紅色：資料不存在或查詢失敗。
+# 注意：資料過舊不等於 GitHub Actions 已確認失敗。
 @app.callback(
     Output("windy-update-status", "children"),
     Input("windy-status-interval", "n_intervals")
 )
 def update_windy_status(_):
+    disclaimer = " | Testing API – Not for Operational Use"
+
+    def status_line(message, color):
+        return [
+            "Windy Forecast | ",
+            html.Span(message, style={"color": color, "fontWeight": "500"}),
+            disclaimer
+        ]
 
     try:
         last_updated = get_windy_last_updated()
 
         if last_updated is None:
-            return "Windy Forecast: Unavailable"
+            return status_line("Error: Data Unavailable", "#dc2626")
 
         now_tw = pd.Timestamp.now(tz="Asia/Taipei")
+        age_minutes = max(0, (now_tw - last_updated).total_seconds() / 60)
+        updated_label = f"{last_updated:%Y-%m-%d %H:%M}"
 
-        age_hours = (
-            now_tw - last_updated
-        ).total_seconds() / 3600
+        if age_minutes > 90:
+            hours, minutes = divmod(int(age_minutes), 60)
+            return status_line(
+                f"Delayed: {hours}h {minutes:02d}m (Last Updated: {updated_label})",
+                "#d97706"
+            )
 
-        status = (
-            f"Windy Forecast Updated {last_updated:%Y-%m-%d %H:%M}"
-            " | Testing API – Not for operational use"
-        )
-
-        if age_hours > 6:
-            status += " | ⚠ Forecast may be outdated"
-
-        return status
+        return status_line(f"Updated: {updated_label}", "#6b7280")
 
     except Exception as e:
         print(f"Windy status check failed: {e}")
-        return "Windy Forecast: Status unavailable"        
+        return status_line("Error: Status Unavailable", "#dc2626")
+
 #%%Run server
 #render佈署
 if __name__ == "__main__":
