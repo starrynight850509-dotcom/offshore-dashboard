@@ -1430,7 +1430,7 @@ app.layout = html.Div([
     
         html.Div(
             f"Engineering Scheduling & Progress Tracking System | "
-            f"v1.4.2 Beta | Admin UI Improvements | "
+            f"v1.4.2 Beta | "
             f"Data Updated: {data_updated}",
             style={
                 "color": "#6b7280",
