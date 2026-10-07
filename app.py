@@ -618,6 +618,12 @@ ANALYTICS_USER = os.getenv("ANALYTICS_USER")
 ANALYTICS_PASSWORD = os.getenv("ANALYTICS_PASSWORD")
 SESSION_MINUTES = 30
 
+ADMIN_IPS = {
+    "59.125.75.250",
+    "39.12.89.45",
+    "127.0.0.1",
+}
+
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not configured")
 
@@ -782,13 +788,19 @@ def _analytics():
 
         v = _sessionize(v)
 
+        v["role"] = v["visitor"].apply(
+            lambda ip: "Admin" if ip in ADMIN_IPS else "Visitor"
+        )
+        visitors = v[v["role"] == "Visitor"].copy()
+
         now = pd.Timestamp.now(tz="Asia/Taipei")
 
-        today = v[v["ts"] >= now.normalize()]
-        d7 = v[v["ts"] >= now - pd.Timedelta(days=7)]
-        d30 = v[v["ts"] >= now - pd.Timedelta(days=30)]
+        today = visitors[visitors["ts"] >= now.normalize()]
+        d7 = visitors[visitors["ts"] >= now - pd.Timedelta(days=7)]
+        d30 = visitors[visitors["ts"] >= now - pd.Timedelta(days=30)]
 
     else:
+        v["role"] = pd.Series(dtype="object")
         today = d7 = d30 = v
 
     groups = [
@@ -847,12 +859,13 @@ def _analytics():
                 [
                     "ts",
                     "visitor",
+                    "role",
                     "device",
                     "browser",
                     "session_id"
                 ]
             ]
-            .rename(columns={"visitor": "ip"})
+            .rename(columns={"visitor": "ip", "role": "Role"})
             .to_html(index=False, classes="analytics-table")
         )
 
@@ -973,27 +986,13 @@ def _analytics():
             background: #eff6ff;
         }}
 
-        /* Column widths */
-
-        .analytics-table th:nth-child(1) {{
-            width: 28%;
-        }}
-
-        .analytics-table th:nth-child(2) {{
-            width: 20%;
-        }}
-
-        .analytics-table th:nth-child(3) {{
-            width: 13%;
-        }}
-
-        .analytics-table th:nth-child(4) {{
-            width: 13%;
-        }}
-
-        .analytics-table th:nth-child(5) {{
-            width: 26%;
-        }}
+        /* Six columns: ts, ip, Role, device, browser, session_id */
+        .analytics-table th:nth-child(1) {{ width: 25%; }}
+        .analytics-table th:nth-child(2) {{ width: 18%; }}
+        .analytics-table th:nth-child(3) {{ width: 11%; }}
+        .analytics-table th:nth-child(4) {{ width: 12%; }}
+        .analytics-table th:nth-child(5) {{ width: 12%; }}
+        .analytics-table th:nth-child(6) {{ width: 22%; }}
 
         /* Vertical scrollbar */
 
