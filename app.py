@@ -1562,20 +1562,20 @@ app.layout = html.Div([
     html.Div([
         # 左側
         html.Div([
-        
-            # Gantt
-            dcc.Graph(
-                id="gantt-chart",
-                config={
-                    "scrollZoom": True,
-                    "displayModeBar": True,
-                    "doubleClick": "reset"
-                }
-            )
-        
-        ],
-        className="ocean-gantt-column",
-        style={"minWidth": 0}),
+            html.Div([
+                dcc.Graph(
+                    id="gantt-chart",
+                    config={
+                        "scrollZoom": True,
+                        "displayModeBar": True,
+                        "doubleClick": "reset",
+                        "responsive": True
+                    },
+                    style={"width": "100%", "height": "100%"}
+                )
+            ], className="ocean-gantt-scroll")
+        ], className="ocean-gantt-column",
+           style={"minWidth": 0}),
         # 右側
         html.Div(
             id="detail-panel",

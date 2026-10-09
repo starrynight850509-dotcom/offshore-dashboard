@@ -215,3 +215,30 @@ body {background:var(--ocean-bg);margin:0;}
     padding: 4px 0 8px !important;
     margin-bottom: 8px !important;
 }
+/* v1.5.0 Beta — Mobile Gantt Mode */
+
+.ocean-gantt-scroll {
+    width: 100%;
+    overflow: visible;
+}
+
+@media (max-width: 680px) {
+
+    .ocean-gantt-column {
+        width: 100% !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .ocean-gantt-scroll {
+        width: 100%;
+        overflow-x: auto !important;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .ocean-gantt-scroll #gantt-chart {
+        width: 1000px !important;
+        min-width: 1000px !important;
+    }
+}
