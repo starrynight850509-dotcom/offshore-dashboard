@@ -1225,10 +1225,11 @@ def build_summary_table():
                 html.Td(
                     html.Img(
                         src=get_asset_url(p["logo"]),
-                        style={"height":"25px"}
+                        alt=p["name"],
+                        title=p["name"],
+                        style={"height":"25px", "maxWidth":"100%", "objectFit":"contain"}
                     )
                 ),
-                html.Td(p["name"]),
                 html.Td(str(p["start"])),
                 html.Td(str(today)),
                 html.Td(
@@ -1244,11 +1245,10 @@ def build_summary_table():
     return html.Table(
         [
             html.Tr([
-                html.Th("Logo",style={"width":"20%"}),
-                html.Th("Company",style={"width":"20%"}),
-                html.Th("Start",style={"width":"20%"}),
-                html.Th("Today",style={"width":"20%"}),
-                html.Th("Days",style={"width":"20%"})
+                html.Th("Company",style={"width":"25%"}),
+                html.Th("Start",style={"width":"25%"}),
+                html.Th("Today",style={"width":"25%"}),
+                html.Th("Days",style={"width":"25%"})
             ])
         ] + rows,
         className="ocean-company-table",
