@@ -242,3 +242,12 @@ body {background:var(--ocean-bg);margin:0;}
         min-width: 1000px !important;
     }
 }
+/* Mobile Gantt — Touch Zoom */
+
+@media (max-width: 680px) {
+
+    .ocean-gantt-scroll .js-plotly-plot {
+        touch-action: none;
+    }
+
+}
