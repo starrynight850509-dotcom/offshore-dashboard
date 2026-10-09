@@ -1,56 +1,206 @@
-/* Plotly 圖表寬度自適應 */
-.js-plotly-plot {
-    width: 100% !important;
+/* Offshore Dashboard v1.5.0 Beta — Deep Ocean, Phase 1 */
+:root {--ocean-bg:#101d2d;--ocean-panel:#1d3047;--ocean-border:#34475e;--ocean-text:#f0f6fc;--ocean-muted:#afc1d5;--ocean-accent:#78c8fa;}
+body {background:var(--ocean-bg);margin:0;}
+.ocean-app {background:var(--ocean-bg);color:var(--ocean-text);font-family:Inter,"Segoe UI",Arial,sans-serif;min-height:100vh;padding:20px 24px;box-sizing:border-box;}
+.ocean-header {background:var(--ocean-panel);border:1px solid var(--ocean-border);border-radius:12px;padding:20px 14px;margin-bottom:16px!important;}
+.ocean-title {font-family:inherit;font-size:clamp(19px,2vw,28px);font-weight:650;letter-spacing:.15px;color:var(--ocean-text);margin-top:0;}
+.ocean-subtitle,.ocean-windy-status {color:var(--ocean-muted)!important;font-size:12px;line-height:1.6;}
+.ocean-summary {background:#101d2d!important;background-color:#101d2d!important;padding:10px!important;margin-bottom:14px!important;border:0!important;box-shadow:none!important;}
+.ocean-company-table {background:var(--ocean-panel);border:1px solid var(--ocean-border)!important;border-collapse:collapse;border-radius:10px;overflow:hidden;color:var(--ocean-text);}
+.ocean-company-table th {background:#243a53;color:var(--ocean-muted);font-size:12px;padding:11px 8px;}
+.ocean-company-table td {padding:11px 8px;border-top:1px solid var(--ocean-border);}
+.ocean-company-table td:last-child {color:var(--ocean-accent)!important;font-variant-numeric:tabular-nums;}
+.ocean-kpi-grid {display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px!important;margin:14px 0!important;}
+.ocean-kpi-card {width:auto!important;margin:0!important;background:var(--ocean-panel);border:1px solid var(--ocean-border)!important;border-radius:10px;padding:16px 10px!important;min-width:0;}
+.ocean-kpi-card h2 {color:var(--ocean-accent)!important;font-size:28px!important;font-variant-numeric:tabular-nums;}
+.ocean-kpi-card p {color:var(--ocean-muted);font-size:12px;margin-top:8px!important;}
+.ocean-upcoming {background:var(--ocean-panel)!important;border:1px solid var(--ocean-border)!important;border-radius:10px!important;padding:16px!important;overflow-x:auto;}
+.ocean-upcoming h4 {font-size:15px!important;color:var(--ocean-text);margin-bottom:12px!important;}
+.ocean-upcoming-table {color:var(--ocean-text);min-width:780px;}
+.ocean-upcoming-table th {background:#243a53;color:var(--ocean-muted);padding:11px 9px;text-align:left;font-weight:600;}
+.ocean-upcoming-table td {padding:10px 9px;border-bottom:1px solid var(--ocean-border);text-align:left;}
+.ocean-upcoming-table tr:hover td {background:#29435f;}
+.ocean-toolbar {background:var(--ocean-panel)!important;border:1px solid var(--ocean-border)!important;border-radius:10px!important;padding:16px!important;display:flex;justify-content:space-between;gap:2%;}
+.ocean-toolbar > div {flex:1;min-width:0;}
+.ocean-toolbar label {display:block;color:var(--ocean-muted);font-size:12px;margin-bottom:8px;}
+/* Dash dropdown has differing class names across versions; support both. */
+.ocean-toolbar .Select-control,.ocean-toolbar .select__control {background:#14263a!important;border:1px solid #486078!important;color:var(--ocean-text)!important;min-height:38px;}
+.ocean-toolbar .Select-placeholder,.ocean-toolbar .Select-value-label,.ocean-toolbar .Select-input input,.ocean-toolbar .select__single-value,.ocean-toolbar .select__input-container {color:var(--ocean-text)!important;}
+.ocean-toolbar .Select-menu-outer,.ocean-toolbar .select__menu {background:#1d3047!important;color:var(--ocean-text)!important;border:1px solid #486078!important;z-index:1000;}
+.ocean-toolbar .Select-option,.ocean-toolbar .select__option {background:#1d3047;color:var(--ocean-text);}
+.ocean-toolbar .Select-option.is-focused,.ocean-toolbar .select__option--is-focused {background:#29435f!important;}
+.ocean-toolbar .Select-value,.ocean-toolbar .select__multi-value {background:#305575!important;border-color:#486078!important;}
+.ocean-toolbar .Select-value-label,.ocean-toolbar .select__multi-value__label {color:var(--ocean-text)!important;}
+/* Base layout; Phase 3 responsive refinements follow below. */
+@media(max-width:1100px){.ocean-kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
+@media(max-width:680px){.ocean-app{padding:12px}.ocean-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.ocean-toolbar{display:block}.ocean-toolbar>div{width:100%!important;display:block!important;margin-bottom:12px;}}
+
+/* v1.5.1 Hotfix: Upcoming Tasks visible without hover */
+.ocean-upcoming {background:#1d3047!important;color:#f0f6fc!important;}
+.ocean-upcoming h4 {color:#f0f6fc!important;}
+.ocean-upcoming-table {background:#1d3047!important;color:#f0f6fc!important;}
+.ocean-upcoming-table tbody,.ocean-upcoming-table tr,.ocean-upcoming-table td {background:#1d3047!important;color:#f0f6fc!important;}
+.ocean-upcoming-table th {background:#243a53!important;color:#c6d9ed!important;}
+.ocean-upcoming-table tr:hover td {background:#29435f!important;}
+/* Dash 2 (React Select v1) and Dash 3 dropdown text: legible selected values and menus */
+.ocean-toolbar .Select-control {background:#14263a!important;}
+.ocean-toolbar .Select-value-label,
+.ocean-toolbar .Select--multi .Select-value-label,
+.ocean-toolbar .Select-placeholder,
+.ocean-toolbar .Select-input input,
+.ocean-toolbar .Select-input input::placeholder,
+.ocean-toolbar .Select-menu-outer .Select-option {color:#f0f6fc!important;opacity:1!important;}
+.ocean-toolbar .Select--multi .Select-value {background:#305575!important;}
+.ocean-toolbar .Select-option.is-selected {background:#305575!important;color:#fff!important;}
+.ocean-toolbar .dash-dropdown,
+.ocean-toolbar .dash-dropdown * {--Dash-Fill-Inverse-Strong:#f0f6fc;--Dash-Text-Primary:#f0f6fc;}
+.ocean-toolbar .dash-dropdown .Select-control,
+.ocean-toolbar .dash-dropdown .select__control {background:#14263a!important;color:#f0f6fc!important;}
+.ocean-toolbar .dash-dropdown .Select-value-label,
+.ocean-toolbar .dash-dropdown .select__multi-value__label,
+.ocean-toolbar .dash-dropdown .select__single-value,
+.ocean-toolbar .dash-dropdown .select__placeholder,
+.ocean-toolbar .dash-dropdown .select__input-container,
+.ocean-toolbar .dash-dropdown .select__input-container input {color:#f0f6fc!important;opacity:1!important;}
+.ocean-toolbar .dash-dropdown .select__multi-value {background:#305575!important;}
+.ocean-toolbar .dash-dropdown .select__menu,
+.ocean-toolbar .dash-dropdown .select__menu-list,
+.ocean-toolbar .dash-dropdown .select__option {background:#1d3047!important;color:#f0f6fc!important;}
+.ocean-toolbar .dash-dropdown .select__option--is-focused {background:#29435f!important;}
+/* Keep the right panel aligned to the top edge of the Gantt container */
+#detail-panel {margin-top:0!important;box-sizing:border-box;color:#f0f6fc!important;}
+#detail-panel h4 {color:#f0f6fc!important;}
+
+/* v1.5.2: Gantt / Detail side-by-side alignment */
+.ocean-gantt-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+}
+.ocean-gantt-column {
+  flex: 1 1 80%;
+  min-width: 0;
+}
+.ocean-detail-panel {
+  flex: 0 0 calc(20% - 16px);
+  min-width: 220px;
+  height: 700px;
+  box-sizing: border-box;
+  padding: 16px;
+  background: #1d3047;
+  color: #f0f6fc;
+  border: 1px solid #34475e;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin: 0 !important;
+}
+@media (max-width: 1050px) {
+  .ocean-gantt-layout { flex-direction: column; }
+  .ocean-gantt-column, .ocean-detail-panel { width: 100%; flex: none; }
+  .ocean-detail-panel { height: auto; min-height: 250px; max-height: 700px; }
 }
 
-/* =======================================================
-   Mobile（手機 / 平板）
-   ======================================================= */
+/* v1.5.3: Detail panel matches the light Plotly work area. */
+@media (min-width: 1051px) {
+  .ocean-gantt-layout { align-items: flex-start; gap: 16px; }
+  .ocean-detail-panel { height: 650px; }
+}
+.ocean-detail-panel {
+  background: #ffffff !important;
+  color: #193451 !important;
+  border: 1px solid #d6e0ea !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+#detail-panel, #detail-panel h4 { color: #193451 !important; }
+#detail-panel a { color: #175ab2 !important; }
+#detail-panel hr { border: 0; border-top: 1px solid #d6e0ea; }
+#detail-panel #detail-content { color: #193451; }
+#detail-panel #detail-content > div { color: #193451; }
+#detail-panel .DateInput_input { color: #193451; }
 
-@media (max-width: 768px) {
+/* v1.6.0 Phase 2: white engineering workspace, ocean-blue shell */
+.ocean-gantt-column { background:#fff; border:1px solid #d6e0ea; border-radius:3px; overflow:hidden; }
+.ocean-gantt-column .js-plotly-plot, .ocean-gantt-column .plot-container { background:#fff; }
+.ocean-detail-panel { font-family:Inter,"Segoe UI",Arial,sans-serif; border-radius:3px!important; }
+.ocean-detail-panel h4 { font-size:14px; font-weight:650; line-height:1.4; }
+.ocean-detail-panel a { text-underline-offset:3px; }
+.ocean-detail-panel #detail-content { font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+.ocean-detail-panel #detail-content table { width:100%; }
+.ocean-detail-panel #detail-content td { overflow-wrap:anywhere; }
+.ocean-detail-panel .DateInput, .ocean-detail-panel .SingleDatePickerInput { max-width:100%; }
+.ocean-detail-panel .DateInput_input { font-size:13px; }
+.ocean-detail-panel ::-webkit-scrollbar { width:8px; height:8px; }
+.ocean-detail-panel ::-webkit-scrollbar-thumb { background:#a8b8c8; border-radius:6px; }
+.ocean-detail-panel ::-webkit-scrollbar-track { background:#f0f4f8; }
 
-    /* 一般文字 */
-    body {
-        font-size: 12px;
-    }
 
-    /* 主標題 */
-    h2 {
-        font-size: 20px !important;
-        line-height: 1.3;
-    }
+/* ==========================================================
+   v1.7.0 Beta — Phase 3: Responsive & final visual polish
+   Keep existing color palette, white engineering work area,
+   chart styling and all Dash component IDs unchanged.
+   ========================================================== */
 
-    /* 次標題 */
-    h3,
-    h4 {
-        font-size: 16px !important;
-    }
+/* Make sizing predictable and prevent wide text from stretching cards. */
+.ocean-app, .ocean-app * { box-sizing: border-box; }
+.ocean-header, .ocean-summary, .ocean-toolbar, .ocean-gantt-layout { max-width: 100%; }
+.ocean-title { overflow-wrap: anywhere; }
+.ocean-kpi-card { overflow-wrap: anywhere; }
+.ocean-kpi-card p { line-height: 1.35; }
+.ocean-company-table { width: 100%; }
+.ocean-upcoming { scrollbar-color: #607d9a #1d3047; }
+.ocean-upcoming-table { width: 100%; }
+.ocean-upcoming-table td, .ocean-upcoming-table th { vertical-align: middle; }
+.ocean-toolbar { align-items: flex-start; }
+.ocean-toolbar > div { min-width: 0; }
+.ocean-toolbar .Select-control, .ocean-toolbar .select__control { max-width: 100%; }
 
-    /* Label */
-    label {
-        font-size: 12px !important;
-    }
+/* Maintain approved 16px spacing and white Gantt + details. */
+.ocean-gantt-layout { gap: 16px; align-items: flex-start; }
+.ocean-gantt-column { flex: 1 1 0; min-width: 0; }
+.ocean-detail-panel { flex: 0 0 calc(20% - 16px); min-width: 220px; }
+.ocean-gantt-column .dash-graph { width: 100%; }
+.ocean-detail-panel #detail-content { max-width: 100%; }
 
-    /* Dropdown */
-    .Select-control,
-    .Select-placeholder,
-    .Select-value-label {
-        font-size: 12px !important;
-    }
+/* Tablet: keep KPIs readable, put the details below the chart. */
+@media (max-width: 1100px) {
+  .ocean-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1050px) {
+  .ocean-gantt-layout { flex-direction: column; }
+  .ocean-gantt-column, .ocean-detail-panel {
+    width: 100%; max-width: 100%; flex: none;
+  }
+  .ocean-detail-panel { min-width: 0; height: auto; min-height: 250px; max-height: 700px; }
+}
 
-    /* DatePicker */
-    .DateInput_input {
-        font-size: 12px !important;
-    }
+/* Mobile: stack filters and cards without changing dropdown behavior. */
+@media (max-width: 680px) {
+  .ocean-app { padding: 12px; }
+  .ocean-header { padding: 16px 12px; }
+  .ocean-summary { padding: 0 !important; }
+  .ocean-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px !important; }
+  .ocean-kpi-card { padding: 12px 8px !important; }
+  .ocean-kpi-card h2 { font-size: 24px !important; }
+  .ocean-upcoming { padding: 12px !important; }
+  .ocean-toolbar { display: block; padding: 12px !important; }
+  .ocean-toolbar > div { width: 100% !important; display: block !important; margin-bottom: 12px; }
+  .ocean-toolbar > div:last-child { margin-bottom: 0; }
+  .ocean-gantt-layout { gap: 12px; }
+  .ocean-detail-panel { padding: 12px; }
+}
 
-    /* KPI 卡片可自動換行 */
-    .kpi-card {
-        width: 100% !important;
-        margin-bottom: 10px;
-    }
-
-    /* Plotly 圖表允許左右滑動 */
-    .js-plotly-plot {
-        overflow-x: auto;
-    }
+/* v1.7.1 — Compact Filter: recover vertical room above Gantt. */
+@media (min-width: 681px) {
+  .ocean-toolbar { padding: 8px 12px !important; margin-bottom: 8px !important; align-items: center; }
+  .ocean-toolbar label { margin-bottom: 3px !important; line-height: 1.15; font-size: 11px; }
+  .ocean-toolbar .Select-control, .ocean-toolbar .select__control { min-height: 32px !important; }
+  .ocean-toolbar .Select-value, .ocean-toolbar .select__multi-value { margin-top: 2px; margin-bottom: 2px; }
+  /* Selected multi-value chips scroll within one line instead of expanding the toolbar. */
+  .ocean-toolbar .Select-multi-value-wrapper { display: block; white-space: nowrap; overflow-x: auto; overflow-y: hidden; max-height: 31px; }
+  .ocean-toolbar .Select--multi .Select-value { display: inline-block; float: none; vertical-align: middle; }
+  .ocean-toolbar .select__value-container { max-height: 32px; overflow-y: auto; }
 }

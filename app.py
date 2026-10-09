@@ -1251,6 +1251,7 @@ def build_summary_table():
                 html.Th("Days",style={"width":"20%"})
             ])
         ] + rows,
+        className="ocean-company-table",
         style={
             "width": "100%",                 # 表格寬度佔滿
             "tableLayout": "fixed",          # 固定欄寬，不依內容自動調整
@@ -1345,6 +1346,7 @@ def build_card(title, value):
             html.P(title,style={
                             "margin": "5px"
                             })],
+            className="ocean-kpi-card",
             style={
                 "border": "1px solid lightgray",   # 淺灰色 1px 邊框
                 "padding": "10px",                 # 內距 15px（內容與邊框的距離）
@@ -1416,6 +1418,7 @@ def build_upcoming_tasks(days=7):
                     html.Th("Note")
                 ])
             ] + rows,
+            className="ocean-upcoming-table",
             style={
                 "width": "100%",
                 "tableLayout": "auto",
@@ -1424,7 +1427,7 @@ def build_upcoming_tasks(days=7):
                 "fontSize": "12px"
             }
         )
-    ], style={
+    ], className="ocean-upcoming", style={
         "backgroundColor": "#f9f9f9",
         "padding": "10px",
         "border": "1px solid lightgray",
@@ -1450,13 +1453,15 @@ app.layout = html.Div([
     html.Div([
         html.H2(
             "🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
+            className="ocean-title",
             style={"marginBottom": "5px"}
         ),
     
         html.Div(
             f"Engineering Scheduling & Progress Tracking System | "
-            f"v1.4.2 Beta | "
+            f"v1.5.0 Beta | "
             f"Schedule Data Updated: {data_updated}",
+            className="ocean-subtitle",
             style={
                 "color": "#6b7280",
                 "fontSize": "12px",
@@ -1470,6 +1475,7 @@ app.layout = html.Div([
         # 內容由 callback 自動更新
         html.Div(
             id="windy-update-status",
+            className="ocean-windy-status",
             children="Windy Forecast | Checking... | Testing API – Not for Operational Use",
             style={
                 "color": "#6b7280",
@@ -1480,7 +1486,7 @@ app.layout = html.Div([
             }
         )
     
-    ], style={
+    ], className="ocean-header", style={
         "textAlign": "center",
         "marginBottom": "10px"
     }),
@@ -1504,6 +1510,7 @@ app.layout = html.Div([
                 build_card(title, value)
                 for title, value in kpi_data.items()
             ],
+            className="ocean-kpi-grid",
             style={
                 "display": "flex",
                 "justifyContent": "center",
@@ -1514,8 +1521,8 @@ app.layout = html.Div([
         ),
         # Upcoming Tasks
         build_upcoming_tasks(days=7)
-    ], style={
-        "backgroundColor": "#f9f9f9",
+    ], className="ocean-summary", style={
+        "backgroundColor": "#101D2D",
         "padding": "10px",
         "borderRadius": "8px",
         "marginBottom": "10px"
@@ -1542,10 +1549,10 @@ app.layout = html.Div([
                 id="cat-filter"
             )
         ], style={"width": "49%", "display": "inline-block"})
-    ], style={
-        "marginBottom": "10px",
-        "padding": "10px",
-        "backgroundColor": "white",
+    ], className="ocean-toolbar", style={
+        "marginBottom": "8px",
+        "padding": "8px 12px",
+        "backgroundColor": "#1d3047",
         "border": "1px solid #ddd",
         "borderRadius": "6px"
     }),    
@@ -1567,11 +1574,8 @@ app.layout = html.Div([
             )
         
         ],
-        style={
-            "width":"80%",
-            "display":"inline-block",
-            "verticalAlign":"top"
-        }),
+        className="ocean-gantt-column",
+        style={"minWidth": 0}),
         # 右側
         html.Div(
             id="detail-panel",
@@ -1611,22 +1615,10 @@ app.layout = html.Div([
                     id="detail-content"
                 )
             ],
-            style={
-                "width": "16%",
-                "display": "inline-block",
-                "verticalAlign": "top",
-                "padding": "15px",
-                "backgroundColor": "#ffffff",
-                "border": "1px solid #d1d5db",
-                "borderRadius": "10px",
-                "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-                "height": "560px",
-                "overflowY": "auto",
-                "marginTop": "70px"
-            }
+            className="ocean-detail-panel"
         )
-    ])
-])
+    ], className="ocean-gantt-layout")
+], className="ocean-app")
 
 #%%Callback (dynamic update)
 @app.callback(
@@ -2059,12 +2051,16 @@ def update_chart(selected_tasks, selected_cats, selected_date):
             b=5
         ),
         dragmode="pan",
-    
+        # Phase 2: preserve the approved white engineering workspace.
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#e7eef7",
+        font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#193451"),
+        title_font=dict(size=17, color="#193451"),
         hoverlabel=dict(
-            bgcolor="white",
-            font_size=12
+            bgcolor="#ffffff",
+            bordercolor="#b8c9da",
+            font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#193451")
         ),
-    
         uirevision="keep"
     )
     # =========================================================
@@ -2123,6 +2119,9 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         tickvals=lane_order,
         ticktext=ticktext,
         title=None,
+        tickfont=dict(family="Segoe UI, Arial, sans-serif", size=11, color="#193451"),
+        showgrid=False,
+        zeroline=False,
 
         # Gantt 使用圖面下方約 76%
         domain=[0.00, 0.84]
@@ -2152,13 +2151,19 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     
             showgrid=False,
             zeroline=False,
+            tickfont=dict(size=10, color="#193451"),
+            title_font=dict(size=12, color="#193451"),
             fixedrange=False
         )
     )
     fig.update_xaxes(
-    rangeslider_visible=True,
-    rangeslider=dict(thickness=0.02),
-    fixedrange=False
+        rangeslider_visible=True,
+        rangeslider=dict(thickness=0.02, bgcolor="#f3f7fb", bordercolor="#d6e0ea", borderwidth=1),
+        tickfont=dict(size=11, color="#193451"),
+        gridcolor="#ffffff",
+        gridwidth=1,
+        zeroline=False,
+        fixedrange=False
     )
     return fig
 #%% 點擊 Gantt bar 後，更新右側 detail-content 面板
