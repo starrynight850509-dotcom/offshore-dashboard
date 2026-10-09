@@ -2045,7 +2045,7 @@ def update_chart(selected_tasks, selected_cats, selected_date):
         ),
         height=chart_height,
         margin=dict(
-            l=180,
+            l=130,
             r=20,
             t=100,             # 上方空間增加
             b=5

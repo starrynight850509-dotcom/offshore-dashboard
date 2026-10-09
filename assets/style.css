@@ -204,3 +204,14 @@ body {background:var(--ocean-bg);margin:0;}
   .ocean-toolbar .Select--multi .Select-value { display: inline-block; float: none; vertical-align: middle; }
   .ocean-toolbar .select__value-container { max-height: 32px; overflow-y: auto; }
 }
+/* v1.5.0 Beta — Borderless Filter */
+.ocean-toolbar {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+
+    padding: 4px 0 8px !important;
+    margin-bottom: 8px !important;
+}
