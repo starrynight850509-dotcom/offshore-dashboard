@@ -929,7 +929,7 @@ def _analytics():
         )
         header_html.append(
             f'<th><label class="filter-label" for="filter-{idx}">{label}</label>'
-            f'<select class="column-filter" id="filter-{idx}" data-column="{idx}" '
+            f'<select class="column-filter" id="filter-{idx}" data-column="{idx}" autocomplete="off" '
             f'aria-label="Filter {label}">{option_html}</select></th>'
         )
     recent = re.sub(r'<thead>.*?</thead>',
@@ -1040,6 +1040,19 @@ def _analytics():
             z-index: 2;
             font-weight: bold;
         }}
+
+        .column-filter {{
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+            margin-top: 5px;
+            padding: 5px 2px;
+            font-size: 12px;
+        }}
+
+        .filter-label {{ display: block; }}
 
         .analytics-table th:last-child,
         .analytics-table td:last-child {{
@@ -1157,6 +1170,8 @@ def _analytics():
         const tbody = table.querySelector('tbody');
         const rows = Array.from(tbody.querySelectorAll('tr'));
         const filters = Array.from(table.querySelectorAll('.column-filter'));
+        // Reset browser-restored selections when opening or refreshing admin.
+        filters.forEach((filter, index) => {{ filter.selectedIndex = 0; }});
         function applyFilters() {{
             const sort = filters[0].value;
             rows.sort((a, b) => {{
@@ -1170,7 +1185,7 @@ def _analytics():
                     const idx = Number(filter.dataset.column);
                     return !filter.value || row.cells[idx].textContent.trim() === filter.value;
                 }});
-                row.hidden = !visible;
+                row.style.display = visible ? '' : 'none';
                 fragment.appendChild(row);
             }});
             tbody.appendChild(fragment);
