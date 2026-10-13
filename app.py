@@ -912,13 +912,16 @@ def _analytics():
     else:
         options_by_col = [[] for _ in columns]
 
-    if 'class="analytics-table"' not in recent:
+    if "<table" not in recent:
         recent = '<table class="dataframe analytics-table"><thead><tr>' + ''.join(
             f'<th>{label}</th>' for label in labels
         ) + '</tr></thead><tbody></tbody></table>'
 
     header_html = []
     for idx, label in enumerate(labels):
+        if idx == 5:
+            header_html.append("<th>Session ID</th>")
+            continue
         if idx == 0:
             choices = [('desc', 'Newest first'), ('asc', 'Oldest first')]
         else:
@@ -1063,7 +1066,7 @@ def _analytics():
             background: #eff6ff;
         }}
 
-        /* Six columns: ts, ip, Role, device, browser, session_id */
+        /* Six columns; Session ID is display-only */
         .analytics-table th:nth-child(1) {{ width: 25%; }}
         .analytics-table th:nth-child(2) {{ width: 18%; }}
         .analytics-table th:nth-child(3) {{ width: 11%; }}
