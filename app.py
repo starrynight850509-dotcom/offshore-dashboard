@@ -891,11 +891,50 @@ def _analytics():
                 ]
             ]
             .rename(columns={"visitor": "ip", "role": "Role"})
-            .to_html(index=False, classes="analytics-table")
+            .to_html(index=False, classes="analytics-table", escape=True)
         )
 
     else:
         recent = "<p>No page views yet.</p>"
+
+    # Add client-side filters to each table header (no database changes).
+    from html import escape as html_escape
+    import re
+
+    columns = ["ts", "ip", "Role", "device", "browser", "session_id"]
+    labels = ["Time", "IP", "Role", "Device", "Browser", "Session ID"]
+    if not v.empty:
+        filter_data = v.rename(columns={"visitor": "ip", "role": "Role"}).copy()
+        filter_data["ts"] = filter_data["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        filter_data = filter_data[columns]
+        options_by_col = [sorted(filter_data[col].fillna("").astype(str).unique())
+                          for col in columns]
+    else:
+        options_by_col = [[] for _ in columns]
+
+    if 'class="analytics-table"' not in recent:
+        recent = '<table class="dataframe analytics-table"><thead><tr>' + ''.join(
+            f'<th>{label}</th>' for label in labels
+        ) + '</tr></thead><tbody></tbody></table>'
+
+    header_html = []
+    for idx, label in enumerate(labels):
+        if idx == 0:
+            choices = [('desc', 'Newest first'), ('asc', 'Oldest first')]
+        else:
+            choices = [('', 'All')] + [(item, item) for item in options_by_col[idx] if item]
+        option_html = ''.join(
+            f'<option value="{html_escape(value, quote=True)}">{html_escape(title)}</option>'
+            for value, title in choices
+        )
+        header_html.append(
+            f'<th><label class="filter-label" for="filter-{idx}">{label}</label>'
+            f'<select class="column-filter" id="filter-{idx}" data-column="{idx}" '
+            f'aria-label="Filter {label}">{option_html}</select></th>'
+        )
+    recent = re.sub(r'<thead>.*?</thead>',
+                    '<thead><tr>' + ''.join(header_html) + '</tr></thead>',
+                    recent, count=1, flags=re.DOTALL)
 
     return f"""
     <style>
@@ -1110,6 +1149,36 @@ def _analytics():
         </div>
 
     </div>
+
+    <script>
+    (() => {{
+        const table = document.querySelector('.analytics-table');
+        if (!table) return;
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const filters = Array.from(table.querySelectorAll('.column-filter'));
+        function applyFilters() {{
+            const sort = filters[0].value;
+            rows.sort((a, b) => {{
+                const at = a.cells[0].textContent.trim();
+                const bt = b.cells[0].textContent.trim();
+                return sort === 'asc' ? at.localeCompare(bt) : bt.localeCompare(at);
+            }});
+            const fragment = document.createDocumentFragment();
+            rows.forEach(row => {{
+                const visible = filters.slice(1).every(filter => {{
+                    const idx = Number(filter.dataset.column);
+                    return !filter.value || row.cells[idx].textContent.trim() === filter.value;
+                }});
+                row.hidden = !visible;
+                fragment.appendChild(row);
+            }});
+            tbody.appendChild(fragment);
+        }}
+        filters.forEach(filter => filter.addEventListener('change', applyFilters));
+        applyFilters();
+    }})();
+    </script>
 
     <p>
         <a href="/">&larr; Back to Dashboard</a>
