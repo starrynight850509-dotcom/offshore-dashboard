@@ -643,9 +643,12 @@ ANALYTICS_USER = os.getenv("ANALYTICS_USER")
 ANALYTICS_PASSWORD = os.getenv("ANALYTICS_PASSWORD")
 SESSION_MINUTES = 30
 
+OFFICE_ROLES = {
+    "59.125.75.250": "IOC-TC",
+}
+
 ADMIN_IPS = {
     # "59.125.75.250",
-    # "39.12.89.45",
     "127.0.0.1",
 }
 
@@ -814,7 +817,8 @@ def _analytics():
         v = _sessionize(v)
 
         v["role"] = v["visitor"].apply(
-            lambda ip: "Admin" if ip in ADMIN_IPS else "Visitor"
+            lambda ip: ("Admin" if ip in ADMIN_IPS
+                        else OFFICE_ROLES.get(ip, "Visitor"))
         )
         visitors = v[v["role"] == "Visitor"].copy()
 
@@ -837,8 +841,6 @@ def _analytics():
     cards = ""
 
     for title, data in groups:
-        views = len(data)
-
         unique = (
             data["visitor"].nunique()
             if not data.empty else 0
@@ -854,48 +856,40 @@ def _analytics():
 
         <div class="card-row">
             <div class="card">
-                <b>{views}</b><br>Page Views
+                <b>{sessions}</b><br>Sessions
             </div>
 
             <div class="card">
                 <b>{unique}</b><br>Unique IPs
             </div>
-
-            <div class="card">
-                <b>{sessions}</b><br>Sessions
-            </div>
         </div>
         """
 
-    # Recent Page Views - All records
+    # One row per session, using its latest recorded page view.
+    # The original page_views table remains unchanged.
     if not v.empty:
-        recent = (
-            v.sort_values("ts", ascending=False)
+        session_rows = (
+            v.sort_values("ts")
+            .drop_duplicates(subset=["session_id"], keep="last")
+            .sort_values("ts", ascending=False)
             .copy()
         )
-
-        recent["ts"] = (
-            recent["ts"]
-            .dt.strftime("%Y-%m-%d %H:%M:%S")
+        recent_data = session_rows.rename(
+            columns={"visitor": "ip", "role": "Role"}
+        ).copy()
+        recent_data["ts"] = recent_data["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        recent_data = recent_data[
+            ["ts", "ip", "Role", "device", "browser", "session_id"]
+        ]
+        recent = recent_data.to_html(
+            index=False, classes="analytics-table", escape=True
         )
-
-        recent = (
-            recent[
-                [
-                    "ts",
-                    "visitor",
-                    "role",
-                    "device",
-                    "browser",
-                    "session_id"
-                ]
-            ]
-            .rename(columns={"visitor": "ip", "role": "Role"})
-            .to_html(index=False, classes="analytics-table", escape=True)
-        )
-
     else:
-        recent = "<p>No page views yet.</p>"
+        session_rows = v.copy()
+        recent_data = pd.DataFrame(
+            columns=["ts", "ip", "Role", "device", "browser", "session_id"]
+        )
+        recent = "<p>No sessions yet.</p>"
 
     # Add client-side filters to each table header (no database changes).
     from html import escape as html_escape
@@ -903,12 +897,11 @@ def _analytics():
 
     columns = ["ts", "ip", "Role", "device", "browser", "session_id"]
     labels = ["Time", "IP", "Role", "Device", "Browser", "Session ID"]
-    if not v.empty:
-        filter_data = v.rename(columns={"visitor": "ip", "role": "Role"}).copy()
-        filter_data["ts"] = filter_data["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
-        filter_data = filter_data[columns]
-        options_by_col = [sorted(filter_data[col].fillna("").astype(str).unique())
-                          for col in columns]
+    if not recent_data.empty:
+        options_by_col = [
+            sorted(recent_data[col].fillna("").astype(str).unique())
+            for col in columns
+        ]
     else:
         options_by_col = [[] for _ in columns]
 
@@ -1001,7 +994,7 @@ def _analytics():
             margin: 20px 0 5px;
         }}
 
-        /* Recent Page Views */
+        /* Recent Sessions */
 
         .table-container {{
             width: 100%;
@@ -1136,7 +1129,6 @@ def _analytics():
     <p>Asia/Taipei · Visitor = Public IP</p>
 
     <p class="note">
-        Page View = dashboard homepage load ·
         Session = same IP activity grouped within
         {SESSION_MINUTES} minutes
     </p>
@@ -1148,17 +1140,17 @@ def _analytics():
             {cards}
         </div>
 
-        <!-- Right: Recent Page Views -->
+        <!-- Right: Recent Sessions -->
         <div class="analytics-history">
 
-            <h3>Recent Page Views</h3>
+            <h3>Recent Sessions</h3>
 
             <div class="table-container">
                 {recent}
             </div>
 
             <p class="note">
-                Showing all {len(v)} page views ·
+                Showing all {len(session_rows)} sessions ·
                 Scroll to view older records
             </p>
 
@@ -1202,6 +1194,7 @@ def _analytics():
         <a href="/">&larr; Back to Dashboard</a>
     </p>
     """
+
 
 
 
