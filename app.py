@@ -865,12 +865,12 @@ def _analytics():
         </div>
         """
 
-    # One row per session, using its latest recorded page view.
+    # One row per session, using its first recorded page view (session start).
     # The original page_views table remains unchanged.
     if not v.empty:
         session_rows = (
             v.sort_values("ts")
-            .drop_duplicates(subset=["session_id"], keep="last")
+            .drop_duplicates(subset=["session_id"], keep="first")
             .sort_values("ts", ascending=False)
             .copy()
         )
@@ -896,7 +896,7 @@ def _analytics():
     import re
 
     columns = ["ts", "ip", "Role", "device", "browser", "session_id"]
-    labels = ["Time", "IP", "Role", "Device", "Browser", "Session ID"]
+    labels = ["Start Time", "IP", "Role", "Device", "Browser", "Session ID"]
     if not recent_data.empty:
         options_by_col = [
             sorted(recent_data[col].fillna("").astype(str).unique())
