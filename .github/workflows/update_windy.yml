@@ -15,6 +15,22 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # ==============================
+      # RECORD EXECUTION TIME (UTC+8)
+      # ==============================
+      - name: Record execution time
+        id: execution
+        shell: bash
+        run: |
+          timestamp=$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S')
+          subject_time=$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M')
+
+          echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
+          echo "subject_time=$subject_time" >> "$GITHUB_OUTPUT"
+
+      # ==============================
+      # SETUP
+      # ==============================
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -28,6 +44,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas requests psycopg2-binary python-dotenv
 
+      # ==============================
+      # UPDATE WINDY FORECAST
+      # ==============================
       - name: Update Windy forecast
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -46,14 +65,18 @@ jobs:
           secure: true
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "F2 Windy Forecast Updated - SUCCESS"
+          subject: "[SUCCESS] F2 Windy Forecast | ${{ steps.execution.outputs.subject_time }}"
           to: ${{ secrets.MAIL_TO }}
           from: ${{ secrets.MAIL_USERNAME }}
           body: |
-            F2 Windy forecast update completed successfully.
+            F2 WINDY FORECAST UPDATE
 
             Status: SUCCESS
+            Execution Time: ${{ steps.execution.outputs.timestamp }} (UTC+8)
+            Model: gfsWave
+            Database: PostgreSQL
             Trigger: ${{ github.event_name }}
+
             Repository: ${{ github.repository }}
             Run ID: ${{ github.run_id }}
 
@@ -72,16 +95,21 @@ jobs:
           secure: true
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "F2 Windy Forecast Updated - FAILED"
+          subject: "[FAILED] F2 Windy Forecast | ${{ steps.execution.outputs.subject_time }}"
           to: ${{ secrets.MAIL_TO }}
           from: ${{ secrets.MAIL_USERNAME }}
           body: |
-            F2 Windy forecast update failed.
+            F2 WINDY FORECAST UPDATE
 
             Status: FAILED
+            Execution Time: ${{ steps.execution.outputs.timestamp }} (UTC+8)
+            Model: gfsWave
+            Database: PostgreSQL
             Trigger: ${{ github.event_name }}
+
             Repository: ${{ github.repository }}
             Run ID: ${{ github.run_id }}
 
             Run details:
             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
