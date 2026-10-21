@@ -2248,7 +2248,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_dat
     
         fig.add_annotation(
             x=date,
-            y=0.5,
+            y=0.88,
             yref="paper",
             text=(f"<b>{label}</b><br>"f"{date.strftime('%Y-%m-%d')}"),
             showarrow=False,
@@ -2276,7 +2276,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_dat
     
     fig.add_annotation(
         x=pd.Timestamp("2026-07-31"),
-        y=0.5,
+        y=0.4,
         yref="paper",
         text="<b>STANDBY</b>",
         showarrow=False,
