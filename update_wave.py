@@ -62,7 +62,12 @@ def fetch_windy_wave():
         timeout=20
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        print(f"Windy API HTTP {response.status_code}")
+        print("Windy error response:")
+        print(response.text[:2000])
+        response.raise_for_status()
+    
     return response.json()
 
 
