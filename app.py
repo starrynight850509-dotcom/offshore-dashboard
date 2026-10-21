@@ -2739,7 +2739,15 @@ def update_task_options(n_intervals, old_options, selected_tasks):
         and task not in new_selection
     ]
 
-    return new_options, new_selection
+    # Do not write identical dropdown props every 60 seconds: doing so can
+    # trigger update_chart and reset the user's Gantt viewport.
+    old_options_values = [
+        item["value"] if isinstance(item, dict) else item
+        for item in (old_options or [])
+    ]
+    options_result = no_update if old_options_values == new_options else new_options
+    value_result = no_update if (selected_tasks == new_selection) else new_selection
+    return options_result, value_result
 #%% Schedule Updated Time Auto Refresh
 @app.callback(
     Output("schedule-update-status", "children"),
