@@ -24,7 +24,7 @@ from dash import get_asset_url
 from sqlalchemy import create_engine
 from sqlalchemy import text
 from functools import lru_cache
-
+from dash import State
 from dotenv import load_dotenv
 load_dotenv(".env")
 print("DATABASE_URL loaded:", bool(os.getenv("DATABASE_URL")))
@@ -2680,9 +2680,12 @@ def update_upcoming_tasks(n_intervals):
 #%% Task Filter Auto Refresh
 @app.callback(
     Output("task-filter", "options"),
-    Input("schedule-refresh-interval", "n_intervals")
+    Output("task-filter", "value"),
+    Input("schedule-refresh-interval", "n_intervals"),
+    State("task-filter", "options"),
+    State("task-filter", "value")
 )
-def update_task_options(n_intervals):
+def update_task_options(n_intervals, old_options, selected_tasks):
 
     schedule_version = get_schedule_updated_at()
     latest_df, _, _ = load_schedule_cached(schedule_version)
@@ -2696,7 +2699,29 @@ def update_task_options(n_intervals):
         ]))
     ]["Task"].dropna().unique()
 
-    return sorted(latest_tasks.tolist())
+    new_options = sorted(latest_tasks.tolist())
+
+    old_tasks = {
+        item["value"] if isinstance(item, dict) else item
+        for item in (old_options or [])
+    }
+
+    selected_tasks = selected_tasks or []
+
+    # 保留原本已選取的 Task
+    new_selection = [
+        task for task in selected_tasks
+        if task in new_options
+    ]
+
+    # 自動選取新加入的 Task
+    new_selection += [
+        task for task in new_options
+        if task not in old_tasks
+        and task not in new_selection
+    ]
+
+    return new_options, new_selection
 #%% Schedule Updated Time Auto Refresh
 @app.callback(
     Output("schedule-update-status", "children"),
@@ -2714,21 +2739,21 @@ def update_schedule_status(n_intervals):
     )
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
-
-#本機測試
-# server = app.server
 # if __name__ == "__main__":
 #     app.run(
-#         debug=True,
-#         host="127.0.0.1",
+#         debug=False,
+#         host="0.0.0.0",
 #         port=8050
-#     )    
+#     )
+
+#本機測試
+server = app.server
+if __name__ == "__main__":
+    app.run(
+        debug=True,
+        host="127.0.0.1",
+        port=8050
+    )    
     
     
 #http://127.0.0.1:8050/
