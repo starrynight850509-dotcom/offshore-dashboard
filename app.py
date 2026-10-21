@@ -13,6 +13,7 @@ import os
 import sqlite3
 import hashlib
 import secrets
+import re
 import psycopg2
 import requests
 
@@ -1372,6 +1373,22 @@ task_df = df[
 ].copy()
 task_list = sorted(task_df["Task"].dropna().unique())
 
+# Personnel attendance: match any role (OR across selected names).
+PERSONNEL_COLUMNS = ["Supervisor", "Pilot", "Tether Manager", "Assistant"]
+def split_personnel(value):
+    if pd.isna(value):
+        return []
+    return [name.strip() for name in re.split(r"[,/、，;；]+", str(value))
+            if name.strip() and name.strip().casefold() not in ("nan", "none", "-")]
+
+def personnel_names(source_df):
+    names = set()
+    for column in PERSONNEL_COLUMNS:
+        if column in source_df.columns:
+            for value in source_df[column].dropna().astype(str):
+                names.update(split_personnel(value))
+    return sorted(names, key=str.casefold)
+
 category_order = [
     "Inspection",
     "WOW(offshore)",
@@ -1648,7 +1665,7 @@ app.layout = html.Div([
     
         html.Div(
             f"Engineering Scheduling & Progress Tracking System | "
-            f"v1.5.0 Beta | "
+            f"v1.5.1 Beta | "
             f"Schedule Data Updated: {data_updated}",
             id="schedule-update-status",
             className="ocean-subtitle",
@@ -1726,6 +1743,16 @@ app.layout = html.Div([
     # =========================================================
     html.Div([
         html.Div([
+            html.Label("Personnel Filter", style={"fontWeight": "bold"}),
+            dcc.Dropdown(
+                id="personnel-filter",
+                options=[{"label": name, "value": name} for name in personnel_names(df)],
+                value=[],
+                multi=True,
+                placeholder="All Personnel"
+            )
+        ], style={"width": "32%", "display": "inline-block", "verticalAlign": "top"}),
+        html.Div([
             html.Label("Task Filter", style={"fontWeight": "bold"}),
             dcc.Dropdown(
                 task_list,
@@ -1733,7 +1760,7 @@ app.layout = html.Div([
                 multi=True,
                 id="task-filter"
             )
-        ], style={"width": "49%", "display": "inline-block"}),
+        ], style={"width": "32%", "display": "inline-block", "verticalAlign": "top"}),
         html.Div([
             html.Label("Category Filter", style={"fontWeight": "bold"}),
             dcc.Dropdown(
@@ -1742,7 +1769,7 @@ app.layout = html.Div([
                 multi=True,
                 id="cat-filter"
             )
-        ], style={"width": "49%", "display": "inline-block"})
+        ], style={"width": "32%", "display": "inline-block", "verticalAlign": "top"}),
     ], className="ocean-toolbar", style={
         "marginBottom": "8px",
         "padding": "8px 12px",
@@ -1832,11 +1859,12 @@ def refresh_schedule_version(n_intervals, previous_version):
     Output("gantt-chart", "figure"),
     Input("task-filter", "value"),
     Input("cat-filter", "value"),
+    Input("personnel-filter", "value"),
     Input("date-picker", "date"),
     Input("schedule-version-store", "data")
 )
 
-def update_chart(selected_tasks, selected_cats, selected_date, schedule_version):
+def update_chart(selected_tasks, selected_cats, selected_personnel, selected_date, schedule_version):
     # Figure redraws only on filter/date changes or a new Neon data version.
     if schedule_version is None:
         return no_update
@@ -1870,24 +1898,45 @@ def update_chart(selected_tasks, selected_cats, selected_date, schedule_version)
         (task_filter_mask | always_show_mask) &
         (chart_df["Category"].isin(selected_cats))
     ].copy()
+    # Personnel attendance filter: any selected person in any role is a match.
+    if selected_personnel:
+        role_columns = [c for c in PERSONNEL_COLUMNS if c in filtered.columns]
+        if role_columns:
+            selected_set = {str(name).strip().casefold() for name in selected_personnel}
+            personnel_mask = filtered[role_columns].fillna("").astype(str).apply(
+                lambda col: col.map(lambda value: any(
+                    part.casefold() in selected_set for part in split_personnel(value)
+                ))
+            ).any(axis=1)
+            filtered = filtered.loc[personnel_mask].copy()
+        else:
+            filtered = filtered.iloc[0:0].copy()
+
     # =========================================================
-    # ORDERING
+    # ORDERING — tower lanes A, B, C, D; no Cluster grouping
     # =========================================================
-    filtered["_cluster_sort"] = filtered["Cluster"].fillna(999)
-    
-    # Non-Operational 固定排最後
-    filtered["_lane_sort"] = np.where(
-        filtered["Lane"] == "Non-Offshore",
-        9999,
-        filtered["_cluster_sort"]
-    )
-    
-    filtered = filtered.sort_values(
-        ["_lane_sort", "Task", "Start"],
-        na_position="last"
-    )
-    
-    lane_order = filtered["Lane"].drop_duplicates().tolist()
+    import re
+    def tower_lane(row):
+        if str(row.get("Lane", "")).strip() == "Non-Offshore":
+            return "Non-Offshore"
+        for candidate in (row.get("Task", ""), row.get("Lane", "")):
+            match = re.search(r"(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)", str(candidate), re.I)
+            if match:
+                code = re.sub(r"[^A-Za-z0-9]", "", match.group(1)).upper()
+                return f"{code[0]}{int(code[1:]):02d}"
+        return str(row.get("Lane", ""))
+
+    filtered["Lane"] = filtered.apply(tower_lane, axis=1)
+    def lane_key(lane):
+        match = re.fullmatch(r"([ABCD])(\d+)", str(lane))
+        if match:
+            return (0, match.group(1), int(match.group(2)))
+        if lane == "Non-Offshore":
+            return (2, "", 0)
+        return (1, str(lane), 0)
+    lane_order = sorted(filtered["Lane"].dropna().unique().tolist(), key=lane_key)
+    filtered["_lane_sort"] = filtered["Lane"].map({lane: i for i, lane in enumerate(lane_order)})
+    filtered = filtered.sort_values(["_lane_sort", "Start"], na_position="last")
     # lane_order = ["Project Events"] + lane_order
     
     filtered["Lane"] = pd.Categorical(
@@ -1998,7 +2047,6 @@ def update_chart(selected_tasks, selected_cats, selected_date, schedule_version)
         "<b>%{customdata[2]}</b><br>"
         "Date: %{customdata[0]}<br>"
         "Category: %{customdata[1]}<br>"
-        "Cluster: %{customdata[3]}<br>"
         "Progress: %{customdata[9]}%<br>"
         "Supervisor: %{customdata[4]}<br>"
         "Pilot: %{customdata[5]}<br>"
@@ -2432,6 +2480,7 @@ def show_detail(clickData, schedule_version):
     date_str = row[0]
     category = row[1]
     task = row[2]
+    cluster = row[3]
     note = row[8]
     progress = int(row[9])
     # =========================================================
@@ -2522,7 +2571,7 @@ def show_detail(clickData, schedule_version):
             # Task + Category + Note
             html.Div([
                 html.Div(
-                    task,
+                    f"{task} ({str(cluster) if str(cluster).lower().startswith('cluster') else 'Cluster ' + str(cluster)})" if pd.notna(cluster) and str(cluster).strip() not in ("", "nan", "None") else str(task),
                     style={
                         "fontSize": "16px",
                         "fontWeight": "bold",
@@ -2764,26 +2813,26 @@ def update_schedule_status(schedule_version):
 
     return (
         "Engineering Scheduling & Progress Tracking System | "
-        "v1.5.0 Beta | "
+        "v1.5.1 Beta | "
         f"Schedule Data Updated: {latest_updated}"
     )
 #%%Run server
 #render佈署
-# if __name__ == "__main__":
-#     app.run(
-#         debug=False,
-#         host="0.0.0.0",
-#         port=8050
-#     )
-
-#本機測試
-server = app.server
 if __name__ == "__main__":
     app.run(
-        debug=True,
-        host="127.0.0.1",
+        debug=False,
+        host="0.0.0.0",
         port=8050
-    )    
+    )
+
+#本機測試
+# server = app.server
+# if __name__ == "__main__":
+#     app.run(
+#         debug=True,
+#         host="127.0.0.1",
+#         port=8050
+#     )    
     
     
 #http://127.0.0.1:8050/
