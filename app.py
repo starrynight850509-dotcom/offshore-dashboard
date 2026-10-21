@@ -24,7 +24,7 @@ from dash import get_asset_url
 from sqlalchemy import create_engine
 from sqlalchemy import text
 from functools import lru_cache
-from dash import State
+from dash import State, no_update
 from dotenv import load_dotenv
 load_dotenv(".env")
 print("DATABASE_URL loaded:", bool(os.getenv("DATABASE_URL")))
@@ -1629,6 +1629,8 @@ app.layout = html.Div([
     # =========================================================
     # Schedule Data Refresh
     # =========================================================
+    # Only change this store when Neon schedule data actually changes.
+    dcc.Store(id="schedule-version-store"),
     dcc.Interval(
         id="schedule-refresh-interval",
         interval=60 * 1000,
@@ -1814,16 +1816,30 @@ app.layout = html.Div([
 
 #%%Callback (dynamic update)
 @app.callback(
+    Output("schedule-version-store", "data"),
+    Input("schedule-refresh-interval", "n_intervals"),
+    State("schedule-version-store", "data")
+)
+def refresh_schedule_version(n_intervals, previous_version):
+    # Poll the lightweight timestamp; avoid sending a new figure when unchanged.
+    version = get_schedule_updated_at()
+    current_version = None if version is None else pd.Timestamp(version).isoformat()
+    if current_version == previous_version:
+        return no_update
+    return current_version
+
+@app.callback(
     Output("gantt-chart", "figure"),
     Input("task-filter", "value"),
     Input("cat-filter", "value"),
     Input("date-picker", "date"),
-    Input("schedule-refresh-interval", "n_intervals")
+    Input("schedule-version-store", "data")
 )
 
-def update_chart(selected_tasks, selected_cats, selected_date, n_intervals):
-    # Check latest schedule version
-    schedule_version = get_schedule_updated_at()
+def update_chart(selected_tasks, selected_cats, selected_date, schedule_version):
+    # Figure redraws only on filter/date changes or a new Neon data version.
+    if schedule_version is None:
+        return no_update
     
     # Load schedule data only when version changes
     chart_df, _, _ = load_schedule_cached(schedule_version)
@@ -2370,9 +2386,9 @@ def update_chart(selected_tasks, selected_cats, selected_date, n_intervals):
 @app.callback(
     Output("detail-content", "children"),
     Input("gantt-chart", "clickData"),
-    Input("schedule-refresh-interval", "n_intervals")
+    State("schedule-version-store", "data")
 )
-def show_detail(clickData, n_intervals):
+def show_detail(clickData, schedule_version):
     # =========================================================
     # 尚未點擊任何 bar 時，顯示預設提示文字
     # =========================================================
@@ -2434,7 +2450,9 @@ def show_detail(clickData, n_intervals):
     # =========================================================
     # 依照 Task + Date 從 hourly_df 找出當天 Timeline
     # =========================================================
-    schedule_version = get_schedule_updated_at()
+    # Reuse the current schedule version; no extra Neon timestamp query per click.
+    if schedule_version is None:
+        return html.Div("Schedule data is loading...")
     _, current_hourly_df, _ = load_schedule_cached(schedule_version)
     
     timeline = current_hourly_df[
