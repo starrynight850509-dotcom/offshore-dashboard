@@ -48,16 +48,95 @@ jobs:
       # UPDATE WINDY FORECAST
       # ==============================
       - name: Update Windy forecast
+        id: update
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           WINDY_API_KEY: ${{ secrets.WINDY_API_KEY }}
-        run: python update_wave.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python update_wave.py 2>&1 | tee update_wave.log
+
+      # ==============================
+      # PREPARE ERROR DETAILS
+      # ==============================
+      - name: Prepare error details
+        if: ${{ failure() }}
+        id: error
+        env:
+          UPDATE_OUTCOME: ${{ steps.update.outcome }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import uuid
+          from pathlib import Path
+
+          log = Path("update_wave.log")
+          outcome = os.environ.get("UPDATE_OUTCOME", "")
+
+          if outcome == "failure" and log.exists():
+              content = log.read_text(errors="replace")
+
+              patterns = [
+                  (r"Invalid API key", "Windy API Authentication"),
+                  (r"password authentication failed", "Database Authentication"),
+                  (r"could not translate host name", "Database Connection"),
+                  (r"connection refused", "Database Connection"),
+                  (r"connection timed out", "Connection Timeout"),
+                  (r"429 Too Many Requests", "API Rate Limit"),
+                  (r"400 Bad Request", "Windy API Request"),
+                  (r"HTTPError", "HTTP Request"),
+                  (r"OperationalError", "Database Operation"),
+                  (r"ModuleNotFoundError", "Python Dependency"),
+              ]
+
+              error_type = "Update Script Error"
+              for pattern, category in patterns:
+                  if re.search(pattern, content, re.I):
+                      error_type = category
+                      break
+
+              if error_type == "Windy API Authentication":
+                  details = "Windy API rejected the API key."
+              elif error_type == "Database Authentication":
+                  details = "PostgreSQL rejected the database credentials."
+              elif error_type == "Database Connection":
+                  details = "Unable to connect to PostgreSQL."
+              elif error_type == "Connection Timeout":
+                  details = "A connection timed out."
+              elif error_type == "API Rate Limit":
+                  details = "API request limit reached."
+              elif error_type == "Windy API Request":
+                  details = "Windy API returned HTTP 400."
+              elif error_type == "Python Dependency":
+                  details = "A required Python module is missing."
+              else:
+                  details = (
+                      "Update script failed. "
+                      "See GitHub Actions logs for details."
+                  )
+          else:
+              error_type = "Workflow Error"
+              details = (
+                  "A workflow step failed before or outside "
+                  "the forecast update."
+              )
+
+          delimiter = "ERROR_" + uuid.uuid4().hex
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"type={error_type}\n")
+              output.write(f"details<<{delimiter}\n")
+              output.write(details + "\n")
+              output.write(f"{delimiter}\n")
+          PY
 
       # ==============================
       # SUCCESS EMAIL
       # ==============================
       - name: Send success email
-        if: success()
+        if: ${{ success() }}
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -87,7 +166,7 @@ jobs:
       # FAILURE EMAIL
       # ==============================
       - name: Send failure email
-        if: failure()
+        if: ${{ failure() }}
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -107,9 +186,14 @@ jobs:
             Database: PostgreSQL
             Trigger: ${{ github.event_name }}
 
+            ERROR DETAILS
+            Error Type: ${{ steps.error.outputs.type }}
+            Error Message: ${{ steps.error.outputs.details }}
+
             Repository: ${{ github.repository }}
             Run ID: ${{ github.run_id }}
 
             Run details:
             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
 
