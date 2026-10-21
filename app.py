@@ -2668,11 +2668,12 @@ def update_windy_status(_):
 #%% KPI Auto Refresh
 @app.callback(
     Output("kpi-container", "children"),
-    Input("schedule-refresh-interval", "n_intervals")
+    Input("schedule-version-store", "data")
 )
-def update_kpi(n_intervals):
+def update_kpi(schedule_version):
 
-    schedule_version = get_schedule_updated_at()
+    if schedule_version is None:
+        return no_update
     latest_df, _, _ = load_schedule_cached(schedule_version)
 
     latest_kpi = calculate_kpi(latest_df)
@@ -2684,11 +2685,12 @@ def update_kpi(n_intervals):
 #%% Upcoming Tasks Auto Refresh
 @app.callback(
     Output("upcoming-container", "children"),
-    Input("schedule-refresh-interval", "n_intervals")
+    Input("schedule-version-store", "data")
 )
-def update_upcoming_tasks(n_intervals):
+def update_upcoming_tasks(schedule_version):
 
-    schedule_version = get_schedule_updated_at()
+    if schedule_version is None:
+        return no_update
     latest_df, _, _ = load_schedule_cached(schedule_version)
 
     return build_upcoming_tasks(
@@ -2699,13 +2701,14 @@ def update_upcoming_tasks(n_intervals):
 @app.callback(
     Output("task-filter", "options"),
     Output("task-filter", "value"),
-    Input("schedule-refresh-interval", "n_intervals"),
+    Input("schedule-version-store", "data"),
     State("task-filter", "options"),
     State("task-filter", "value")
 )
-def update_task_options(n_intervals, old_options, selected_tasks):
+def update_task_options(schedule_version, old_options, selected_tasks):
 
-    schedule_version = get_schedule_updated_at()
+    if schedule_version is None:
+        return no_update, no_update
     latest_df, _, _ = load_schedule_cached(schedule_version)
 
     latest_tasks = latest_df[
@@ -2751,11 +2754,12 @@ def update_task_options(n_intervals, old_options, selected_tasks):
 #%% Schedule Updated Time Auto Refresh
 @app.callback(
     Output("schedule-update-status", "children"),
-    Input("schedule-refresh-interval", "n_intervals")
+    Input("schedule-version-store", "data")
 )
-def update_schedule_status(n_intervals):
+def update_schedule_status(schedule_version):
 
-    schedule_version = get_schedule_updated_at()
+    if schedule_version is None:
+        return no_update
     _, _, latest_updated = load_schedule_cached(schedule_version)
 
     return (
