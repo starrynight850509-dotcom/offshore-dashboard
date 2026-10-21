@@ -7,6 +7,9 @@ Created on Tue Jun 16 13:22:20 2026
 
 import pandas as pd
 import numpy as np
+import os
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 
 # progress
 df = pd.read_excel("progress.xlsx")
@@ -100,6 +103,76 @@ pd.to_pickle(
 )
 
 print("✅ Pickle files generated successfully!")
+# ============================================================
+# PostgreSQL Schedule Data Upload
+# ============================================================
 
+def upload_schedule_to_neon():
+    load_dotenv()
 
+    database_url = os.getenv("DATABASE_URL")
 
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured")
+
+    engine = create_engine(database_url)
+    # Always load the latest processed data
+    progress_df = pd.read_pickle("progress.pkl")
+    hourly_upload_df = pd.read_pickle("hourly.pkl")
+    # Convert DataFrames into JSON-compatible records
+    progress_json = progress_df.to_json(
+        orient="records",
+        date_format="iso"
+    )
+    
+    hourly_json = hourly_upload_df.to_json(
+        orient="records",
+        date_format="iso"
+    )
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS schedule_data (
+                name TEXT PRIMARY KEY,
+                data JSONB NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+
+        conn.execute(
+            text("""
+                INSERT INTO schedule_data (name, data, updated_at)
+                VALUES (:name, CAST(:data AS JSONB), NOW())
+                ON CONFLICT (name)
+                DO UPDATE SET
+                    data = EXCLUDED.data,
+                    updated_at = EXCLUDED.updated_at
+            """),
+            {
+                "name": "progress",
+                "data": progress_json
+            }
+        )
+
+        conn.execute(
+            text("""
+                INSERT INTO schedule_data (name, data, updated_at)
+                VALUES (:name, CAST(:data AS JSONB), NOW())
+                ON CONFLICT (name)
+                DO UPDATE SET
+                    data = EXCLUDED.data,
+                    updated_at = EXCLUDED.updated_at
+            """),
+            {
+                "name": "hourly",
+                "data": hourly_json
+            }
+        )
+
+    engine.dispose()
+
+    print("Schedule data uploaded to Neon successfully!")
+
+#%% Main
+if __name__ == "__main__":
+    upload_schedule_to_neon()

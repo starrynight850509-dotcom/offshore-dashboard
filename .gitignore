@@ -10,3 +10,16 @@ __pycache__/
 # Virtual environment
 venv/
 .venv/
+
+# Excel source data
+progress.xlsx
+hourly.xlsx
+
+# Generated schedule data
+progress.pkl
+hourly.pkl
+metadata.pkl
+
+# Local backup files
+app_backup.py
+pre_process_backup.py

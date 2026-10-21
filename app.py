@@ -23,18 +23,111 @@ from zoneinfo import ZoneInfo
 from dash import get_asset_url
 from sqlalchemy import create_engine
 from sqlalchemy import text
-
+from functools import lru_cache
 
 from dotenv import load_dotenv
 load_dotenv(".env")
 print("DATABASE_URL loaded:", bool(os.getenv("DATABASE_URL")))
 print("WINDY_API_KEY loaded:", bool(os.getenv("WINDY_API_KEY")))
 
-#%%Load data
-df = pd.read_pickle("progress.pkl")
-hourly_df = pd.read_pickle("hourly.pkl")
-metadata = pd.read_pickle("metadata.pkl")
-data_updated = metadata["updated"]
+
+
+#%% Load schedule data from Neon PostgreSQL
+
+def load_schedule_data():
+    
+    database_url = os.getenv("DATABASE_URL")
+
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured")
+
+    schedule_engine = create_engine(
+        database_url.replace(
+            "postgresql://",
+            "postgresql+psycopg2://",
+            1
+        ),
+        pool_pre_ping=True
+    )
+
+    try:
+        with schedule_engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT name, data, updated_at
+                FROM schedule_data
+                WHERE name IN ('progress', 'hourly')
+            """)).fetchall()
+
+        schedule = {
+            name: {
+                "df": pd.DataFrame(data),
+                "updated_at": updated_at
+            }
+            for name, data, updated_at in rows
+        }
+
+        if "progress" not in schedule or "hourly" not in schedule:
+            raise RuntimeError("Schedule data is incomplete")
+
+        progress_df = schedule["progress"]["df"]
+        hourly_data = schedule["hourly"]["df"]
+
+        for col in ["Date", "Start", "End"]:
+            progress_df[col] = pd.to_datetime(progress_df[col])
+
+        hourly_data["Date"] = pd.to_datetime(
+            hourly_data["Date"]
+        )
+
+        last_updated = max(
+            schedule["progress"]["updated_at"],
+            schedule["hourly"]["updated_at"]
+        )
+
+        updated_text = (
+            pd.Timestamp(last_updated)
+            .tz_convert("Asia/Taipei")
+            .strftime("%Y-%m-%d %H:%M")
+        )
+
+        print("Schedule data loaded from Neon")
+
+        return progress_df, hourly_data, updated_text
+
+    finally:
+        schedule_engine.dispose()
+@lru_cache(maxsize=2)
+def load_schedule_cached(version):
+    return load_schedule_data()
+
+def get_schedule_updated_at():
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured")
+
+    engine = create_engine(
+        database_url.replace(
+            "postgresql://",
+            "postgresql+psycopg2://",
+            1
+        ),
+        pool_pre_ping=True
+    )
+
+    try:
+        with engine.connect() as conn:
+            updated_at = conn.execute(text("""
+                SELECT MAX(updated_at)
+                FROM schedule_data
+                WHERE name IN ('progress', 'hourly')
+            """)).scalar()
+
+        return updated_at
+    finally:
+        engine.dispose()
+# Load schedule data
+df, hourly_df, data_updated = load_schedule_data()
+
 #%% Environment Variables
 # ============================================================
 # Local:
@@ -1343,77 +1436,80 @@ def build_summary_table():
         }
     )
 #%%KPI Dashboard
-today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
-kpi_df = df[df["Date"].dt.normalize() <= today].copy()
-
-inspection_days = (
-    kpi_df.loc[
-        kpi_df["Category"] == "Inspection",
-        "Date"
-    ]
-    .dt.normalize()
-    .nunique()
-)
-
-data_days = (
-    kpi_df.loc[
-        kpi_df["Category"] == "Data Processing",
-        "Date"
-    ]
-    .dt.normalize()
-    .nunique()
-)
-
-wow_days = (
-    kpi_df.loc[
-        kpi_df["Category"].isin(
-            ["WOW(offshore)", "WOW(onshore)"]
-        ),
-        "Date"
-    ]
-    .dt.normalize()
-    .nunique()
-)
-
-delay_days = (
-    kpi_df.loc[
-        kpi_df["Category"] == "Delay",
-        "Date"
-    ]
-    .dt.normalize()
-    .nunique()
-)
-
-off_days = (
-    kpi_df.loc[
-        kpi_df["Category"] == "Day off",
-        "Date"
-    ]
-    .dt.normalize()
-    .nunique()
-)
-
-standby_days = (
-    kpi_df.loc[
-        kpi_df["Category"] == "Standby",
-        "Date"
-    ]
-    .dt.normalize()
-    .nunique()
-)
-
-# inspection_days = len(df[df["Category"]=="Inspection"]) - 1  ##6/1有兩隻塔
-# data_days = len(df[df["Category"]=="Data Processing"])
-# wow_days = len(df[df["Category"]=="WOW(offshore)"]) + len(df[df["Category"]=="WOW(onshore)"])
-# delay_days = len(df[df["Category"]=="Delay"])
-# off_days = len(df[df["Category"]=="Day off"])
-kpi_data = {
-    "Inspection Days": inspection_days,
-    "Data Processing Days": data_days,
-    "WOW Days": wow_days,
-    "Delay Days": delay_days,
-    "Day Off": off_days,
-    "Standby": standby_days}
+def calculate_kpi(source_df):
+    today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
+    kpi_df = source_df[source_df["Date"].dt.normalize() <= today].copy()
+    
+    inspection_days = (
+        kpi_df.loc[
+            kpi_df["Category"] == "Inspection",
+            "Date"
+        ]
+        .dt.normalize()
+        .nunique()
+    )
+    
+    data_days = (
+        kpi_df.loc[
+            kpi_df["Category"] == "Data Processing",
+            "Date"
+        ]
+        .dt.normalize()
+        .nunique()
+    )
+    
+    wow_days = (
+        kpi_df.loc[
+            kpi_df["Category"].isin(
+                ["WOW(offshore)", "WOW(onshore)"]
+            ),
+            "Date"
+        ]
+        .dt.normalize()
+        .nunique()
+    )
+    
+    delay_days = (
+        kpi_df.loc[
+            kpi_df["Category"] == "Delay",
+            "Date"
+        ]
+        .dt.normalize()
+        .nunique()
+    )
+    
+    off_days = (
+        kpi_df.loc[
+            kpi_df["Category"] == "Day off",
+            "Date"
+        ]
+        .dt.normalize()
+        .nunique()
+    )
+    
+    standby_days = (
+        kpi_df.loc[
+            kpi_df["Category"] == "Standby",
+            "Date"
+        ]
+        .dt.normalize()
+        .nunique()
+    )
+    
+    # inspection_days = len(df[df["Category"]=="Inspection"]) - 1  ##6/1有兩隻塔
+    # data_days = len(df[df["Category"]=="Data Processing"])
+    # wow_days = len(df[df["Category"]=="WOW(offshore)"]) + len(df[df["Category"]=="WOW(onshore)"])
+    # delay_days = len(df[df["Category"]=="Delay"])
+    # off_days = len(df[df["Category"]=="Day off"])
+    kpi_data = {
+        "Inspection Days": inspection_days,
+        "Data Processing Days": data_days,
+        "WOW Days": wow_days,
+        "Delay Days": delay_days,
+        "Day Off": off_days,
+        "Standby": standby_days}
+    return kpi_data
+kpi_data = calculate_kpi(df)
 def build_card(title, value):
     ## 外框
     return html.Div([
@@ -1439,13 +1535,15 @@ def build_card(title, value):
                 "borderRadius": "8px"
                 })
 #%%upcoming_tasks
-def build_upcoming_tasks(days=7):
+def build_upcoming_tasks(days=7, source_df=None):
+    if source_df is None:
+        source_df = df
     today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
     end_day = today + pd.Timedelta(days=days)
 
-    upcoming = df[
-        (df["Start"] >= today) &
-        (df["Start"] < end_day)
+    upcoming = source_df[
+        (source_df["Start"] >= today) &
+        (source_df["Start"] < end_day)
     ].copy()
 
     if upcoming.empty:
@@ -1529,6 +1627,14 @@ app = Dash(__name__, server=server)
 
 app.layout = html.Div([
     # =========================================================
+    # Schedule Data Refresh
+    # =========================================================
+    dcc.Interval(
+        id="schedule-refresh-interval",
+        interval=60 * 1000,
+        n_intervals=0
+    ),
+    # =========================================================
     # HEADER (工程系統標題)
     # =========================================================
     html.Div([
@@ -1542,6 +1648,7 @@ app.layout = html.Div([
             f"Engineering Scheduling & Progress Tracking System | "
             f"v1.5.0 Beta | "
             f"Schedule Data Updated: {data_updated}",
+            id="schedule-update-status",
             className="ocean-subtitle",
             style={
                 "color": "#6b7280",
@@ -1591,6 +1698,7 @@ app.layout = html.Div([
                 build_card(title, value)
                 for title, value in kpi_data.items()
             ],
+            id="kpi-container",
             className="ocean-kpi-grid",
             style={
                 "display": "flex",
@@ -1601,7 +1709,10 @@ app.layout = html.Div([
             }
         ),
         # Upcoming Tasks
-        build_upcoming_tasks(days=7)
+        html.Div(
+        id="upcoming-container",
+        children=build_upcoming_tasks(days=7)
+        )
     ], className="ocean-summary", style={
         "backgroundColor": "#101D2D",
         "padding": "10px",
@@ -1706,8 +1817,16 @@ app.layout = html.Div([
     Output("gantt-chart", "figure"),
     Input("task-filter", "value"),
     Input("cat-filter", "value"),
-    Input("date-picker", "date") )
-def update_chart(selected_tasks, selected_cats, selected_date):
+    Input("date-picker", "date"),
+    Input("schedule-refresh-interval", "n_intervals")
+)
+
+def update_chart(selected_tasks, selected_cats, selected_date, n_intervals):
+    # Check latest schedule version
+    schedule_version = get_schedule_updated_at()
+    
+    # Load schedule data only when version changes
+    chart_df, _, _ = load_schedule_cached(schedule_version)
     # =========================================================
     # SAFE DEFAULTS
     # =========================================================
@@ -1724,16 +1843,16 @@ def update_chart(selected_tasks, selected_cats, selected_date):
     selected_tasks = selected_tasks or task_list
     selected_cats = selected_cats or cat_list
     
-    always_show_mask = df["Category"].isin(always_show_categories)
+    always_show_mask = chart_df["Category"].isin(always_show_categories)
     
     task_filter_mask = (
-        df["Task"].isin(selected_tasks) &
+        chart_df["Task"].isin(selected_tasks) &
         ~always_show_mask
     )
     
-    filtered = df.loc[
+    filtered = chart_df.loc[
         (task_filter_mask | always_show_mask) &
-        (df["Category"].isin(selected_cats))
+        (chart_df["Category"].isin(selected_cats))
     ].copy()
     # =========================================================
     # ORDERING
@@ -2250,9 +2369,10 @@ def update_chart(selected_tasks, selected_cats, selected_date):
 #%% 點擊 Gantt bar 後，更新右側 detail-content 面板
 @app.callback(
     Output("detail-content", "children"),
-    Input("gantt-chart", "clickData")
+    Input("gantt-chart", "clickData"),
+    Input("schedule-refresh-interval", "n_intervals")
 )
-def show_detail(clickData):
+def show_detail(clickData, n_intervals):
     # =========================================================
     # 尚未點擊任何 bar 時，顯示預設提示文字
     # =========================================================
@@ -2314,9 +2434,12 @@ def show_detail(clickData):
     # =========================================================
     # 依照 Task + Date 從 hourly_df 找出當天 Timeline
     # =========================================================
-    timeline = hourly_df[
-        (hourly_df["Task"] == task) &
-        (hourly_df["Date"].dt.normalize() == date)
+    schedule_version = get_schedule_updated_at()
+    _, current_hourly_df, _ = load_schedule_cached(schedule_version)
+    
+    timeline = current_hourly_df[
+        (current_hourly_df["Task"] == task) &
+        (current_hourly_df["Date"].dt.normalize() == date)
     ].copy()
     # =========================================================
     # 如果沒有 hourly timeline 資料
@@ -2524,7 +2647,71 @@ def update_windy_status(_):
     except Exception as e:
         print(f"Windy status check failed: {e}")
         return status_line("Error: Status Unavailable", "#dc2626")
+#%% KPI Auto Refresh
+@app.callback(
+    Output("kpi-container", "children"),
+    Input("schedule-refresh-interval", "n_intervals")
+)
+def update_kpi(n_intervals):
 
+    schedule_version = get_schedule_updated_at()
+    latest_df, _, _ = load_schedule_cached(schedule_version)
+
+    latest_kpi = calculate_kpi(latest_df)
+
+    return [
+        build_card(title, value)
+        for title, value in latest_kpi.items()
+    ]
+#%% Upcoming Tasks Auto Refresh
+@app.callback(
+    Output("upcoming-container", "children"),
+    Input("schedule-refresh-interval", "n_intervals")
+)
+def update_upcoming_tasks(n_intervals):
+
+    schedule_version = get_schedule_updated_at()
+    latest_df, _, _ = load_schedule_cached(schedule_version)
+
+    return build_upcoming_tasks(
+        days=7,
+        source_df=latest_df
+    )
+#%% Task Filter Auto Refresh
+@app.callback(
+    Output("task-filter", "options"),
+    Input("schedule-refresh-interval", "n_intervals")
+)
+def update_task_options(n_intervals):
+
+    schedule_version = get_schedule_updated_at()
+    latest_df, _, _ = load_schedule_cached(schedule_version)
+
+    latest_tasks = latest_df[
+        (~latest_df["Category"].isin(always_show_categories)) &
+        (~latest_df["Task"].isin([
+            "Mobilization",
+            "Demobilization",
+            "Standby"
+        ]))
+    ]["Task"].dropna().unique()
+
+    return sorted(latest_tasks.tolist())
+#%% Schedule Updated Time Auto Refresh
+@app.callback(
+    Output("schedule-update-status", "children"),
+    Input("schedule-refresh-interval", "n_intervals")
+)
+def update_schedule_status(n_intervals):
+
+    schedule_version = get_schedule_updated_at()
+    _, _, latest_updated = load_schedule_cached(schedule_version)
+
+    return (
+        "Engineering Scheduling & Progress Tracking System | "
+        "v1.5.0 Beta | "
+        f"Schedule Data Updated: {latest_updated}"
+    )
 #%%Run server
 #render佈署
 if __name__ == "__main__":
