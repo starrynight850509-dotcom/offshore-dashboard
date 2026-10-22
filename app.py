@@ -2231,48 +2231,18 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
         ordered=True
     )
     # =========================================================
-    # LANE PROGRESS
-    # =========================================================
-    filtered["_time_diff"] = (
-        filtered["Start"]
-        .sub(now)
-        .abs()
-    )
-    idx = (
-        filtered
-        .groupby("Lane", observed=True)["_time_diff"]
-        .idxmin()
-    )
-    lane_summary = filtered.loc[idx]
-    lane_progress_map = lane_summary.set_index("Lane")["Progress"].to_dict()
-    
-    lane_counts = filtered.groupby("Lane", observed=True).size().to_dict()
+    # LANE PROGRESS — same Inspection rule as overall/project completion KPI.
+    # Intentionally independent of task/category/personnel display filters.
+    inspection_map = latest_inspection_progress(chart_df, cached_master_towers())
     ticktext = []
     for lane in lane_order:
-    
-        if lane == "Project Events":
-            ticktext.append("Project Events")
-            continue
-    
-        if lane == "Non-Offshore":
+        if lane in ("Project Events", "Non-Offshore"):
             ticktext.append(lane)
             continue
-    
-        if not lane_counts.get(lane, 0):
-            ticktext.append(f"{lane} <span style='color:#94a3b8;'><b>(0%)</b></span>")
-            continue
-
-        progress = lane_progress_map.get(lane, 0)
-        if progress < 50:
-            color = "red"
-        elif progress < 80:
-            color = "orange"
-        else:
-            color = "green"
-        ticktext.append(
-            f"{lane} "
-            f"<span style='color:{color};'><b>({progress}%)</b></span>"
-        )
+        progress = inspection_map.get(lane, 0)
+        color = "red" if progress < 50 else "orange" if progress < 80 else "green"
+        progress_text = f"{progress:g}"
+        ticktext.append(f"{lane} <span style='color:{color};'><b>({progress_text}%)</b></span>")
     # =========================================================
     # GANTT
     # =========================================================
@@ -3157,35 +3127,45 @@ def update_personnel_options(schedule_version, selected_personnel, old_options):
     return (no_update if old_options == options else options,
             no_update if selected == (selected_personnel or []) else selected)
 
+# Shared source of truth for jacket Inspection progress.
+# Use the latest dated Inspection entry for each canonical jacket.
+def latest_inspection_progress(source_df, master_towers):
+    if source_df.empty:
+        return {}
+    prepared = source_df if "_chart_lane" in source_df.columns else _prepare_completion_lanes(source_df)
+    valid = prepared.loc[
+        prepared["Category"].fillna("").astype(str).str.strip().str.casefold().eq("inspection")
+        & prepared["_chart_lane"].isin(set(master_towers))
+    ].copy()
+    if valid.empty:
+        return {}
+    valid["_completion_progress"] = pd.to_numeric(valid["Progress"], errors="coerce")
+    valid = valid.dropna(subset=["_completion_progress"])
+    sort_columns = [c for c in ("Date", "Start", "End") if c in valid.columns]
+    valid = valid.sort_values(sort_columns, kind="stable") if sort_columns else valid
+    latest = valid.drop_duplicates("_chart_lane", keep="last")
+    return latest.set_index("_chart_lane")["_completion_progress"].to_dict()
+
+
+def _prepare_completion_lanes(source_df):
+    # Reuse the exact tower normalization used by the Gantt.
+    task_codes = source_df["Task"].fillna("").astype(str).str.extract(
+        r"(?i)(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)", expand=False)
+    lane_codes = source_df["Lane"].fillna("").astype(str).str.extract(
+        r"(?i)(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)", expand=False)
+    codes = task_codes.fillna(lane_codes).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
+    parts = codes.str.extract(r"^([ABCD])(\d{1,2})$", expand=True)
+    prepared = source_df.copy()
+    prepared["_chart_lane"] = parts[0] + parts[1].str.zfill(2)
+    prepared.loc[source_df["Lane"].fillna("").astype(str).str.strip().eq("Non-Offshore"), "_chart_lane"] = "Non-Offshore"
+    return prepared
+
+
 #%% Overall F2 tower completion (unaffected by display filters)
 def calculate_overall_tower_completion(source_df, master_towers):
-    """Count distinct jackets whose Inspection has ever reached 100%."""
-    tower_set = set(master_towers)
-    if not tower_set:
-        return 0, 0
-    if source_df.empty:
-        return 0, len(tower_set)
-
-    # Only Inspection completion counts; Data Processing and other activities do not.
-    completed_rows = source_df.loc[
-        source_df["Category"].fillna("").astype(str).str.strip().str.casefold().eq("inspection")
-        & pd.to_numeric(source_df["Progress"], errors="coerce").ge(100)
-        & source_df["Lane"].fillna("").astype(str).str.strip().ne("Non-Offshore")
-    ]
-    if completed_rows.empty:
-        return 0, len(tower_set)
-
-    pattern = r"(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)"
-    task_towers = completed_rows["Task"].fillna("").astype(str).str.extract(
-        pattern, flags=re.I, expand=False
-    )
-    lane_towers = completed_rows["Lane"].fillna("").astype(str).str.extract(
-        pattern, flags=re.I, expand=False
-    )
-    raw_towers = task_towers.fillna(lane_towers).dropna()
-    normalized = raw_towers.str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
-    normalized = normalized.str[0] + normalized.str[1:].astype(int).astype(str).str.zfill(2)
-    return int(normalized[normalized.isin(tower_set)].nunique()), len(tower_set)
+    """Count jackets whose latest Inspection progress is at least 100%."""
+    progress = latest_inspection_progress(source_df, master_towers)
+    return sum(value >= 100 for value in progress.values()), len(set(master_towers))
 
 
 @lru_cache(maxsize=2)
