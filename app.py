@@ -27,6 +27,7 @@ from sqlalchemy import text
 from functools import lru_cache
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dash import State, no_update
 from dotenv import load_dotenv
 # Per-worker startup diagnostics (not persisted across Render restarts).
@@ -168,12 +169,13 @@ def get_schedule_updated_at():
         return updated_at
     finally:
         engine.dispose()
-# Load schedule data
+# Begin the independent schedule query while wave initialization runs.
+# The future is joined before any code accesses df/hourly_df.
 _STARTUP_INSTRUMENT_SCHEDULE = True
-try:
-    df, hourly_df, data_updated = measure_startup("Load schedule (Neon)", load_schedule_data)
-finally:
-    _STARTUP_INSTRUMENT_SCHEDULE = False
+_startup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="neon-schedule")
+_schedule_future = _startup_executor.submit(
+    measure_startup, "Load schedule (Neon)", load_schedule_data
+)
 
 #%% Environment Variables
 # ============================================================
@@ -749,6 +751,14 @@ try:
 finally:
     _STARTUP_INSTRUMENT_WAVE = False
 
+# Both Neon startup branches have now run concurrently. Propagate schedule errors
+# rather than letting the Dashboard start with missing or stale schedule data.
+try:
+    df, hourly_df, data_updated = _schedule_future.result()
+finally:
+    _STARTUP_INSTRUMENT_SCHEDULE = False
+    _startup_executor.shutdown(wait=True)
+
 if not wave_df_status.empty:
     last_updated = wave_df_status["fetched_at"].max()
 
@@ -1027,7 +1037,7 @@ def _startup_diagnostics_html():
         '<p class="note">Current Python worker only · timings reset on restart. '
         'Render wake-up time before Python starts is not measured.</p>'
         '<p class="note">Main stages: % of Python startup total. '
-        'Indented stages: % of their parent stage; not counted twice.</p>'
+        'Indented stages: % of their parent stage. Parallel stages may overlap.</p>'
         '<div class="startup-table-wrap"><table class="startup-table">'
         '<thead><tr><th>Startup stage</th><th>Duration</th><th>Share</th><th>Relative duration</th></tr></thead>'
         f'<tbody>{rows}</tbody></table></div></section>'
