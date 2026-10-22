@@ -2165,15 +2165,14 @@ app.layout = html.Div([
     # =========================================================
     html.Div([
         html.Div([
-        html.H2(
-            "🌊F2 Offshore Wind Farm Underwater Inspection",
-            className="ocean-title",
-            style={"marginBottom": "5px"}
-        ),
-    
+        html.H2([
+            html.Span("🌊", style={"display": "inline-block", "width": "48px"}),
+            "F2 Offshore Wind Farm Underwater Inspection"
+        ], className="ocean-title", style={"marginBottom": "5px"}),
+
         html.Div(
             f"Engineering Scheduling & Progress Tracking System | "
-            f"v1.5.1 Beta | "
+            f"v2.0.0-rc.2 | "
             f"Schedule Data Updated: {data_updated}",
             id="schedule-update-status",
             className="ocean-subtitle",
@@ -2182,12 +2181,13 @@ app.layout = html.Div([
                 "fontSize": "12px",
                 "marginTop": "3px",
                 "fontWeight": "400",
-                "lineHeight": "1.5"
+                "lineHeight": "1.5",
+                "paddingLeft": "48px"
             }
         ),
     
     
-        ], style={"flex": "4", "minWidth": 0, "textAlign": "center"}),
+        ], style={"flex": "4", "minWidth": 0, "textAlign": "left"}),
         html.Div([
             html.Div("Overall Progress", style={"fontSize": "12px", "color": "#cbd5e1"}),
             html.Div("—", id="overall-progress-percent", style={
@@ -3680,7 +3680,7 @@ def update_schedule_status(schedule_version):
 
     return (
         "Engineering Scheduling & Progress Tracking System | "
-        "v1.5.1 Beta | "
+        "v2.0.0-rc.1 | "
         f"Schedule Data Updated: {latest_updated}"
     ), "ready"
 # End of module initialization (one measurement per Python worker).
