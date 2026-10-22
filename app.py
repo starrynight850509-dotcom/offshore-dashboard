@@ -1919,20 +1919,6 @@ app.layout = html.Div([
             }
         ),
     
-        # Windy forecast 最後更新時間
-        # 內容由 callback 自動更新
-        html.Div(
-            id="windy-update-status",
-            className="ocean-windy-status",
-            children="Windy Forecast | Checking... | Testing API – Not for Operational Use",
-            style={
-                "color": "#6b7280",
-                "fontSize": "12px",
-                "marginTop": "3px",
-                "fontWeight": "400",
-                "lineHeight": "1.5"
-            }
-        )
     
         ], style={"flex": "4", "minWidth": 0, "textAlign": "center"}),
         html.Div([
@@ -2020,6 +2006,20 @@ app.layout = html.Div([
         "marginBottom": "10px"
     }),
     html.Div([
+        # Windy forecast 最後更新時間
+        # 內容由 callback 自動更新
+        html.Div(
+            id="windy-update-status",
+            className="ocean-windy-status",
+            children="Windy Forecast | Checking... | Testing API – Not for Operational Use",
+            style={
+                "color": "#6b7280",
+                "fontSize": "12px",
+                "marginTop": "3px",
+                "fontWeight": "400",
+                "lineHeight": "1.5"
+            }
+        ),
     # =========================================================
     # TOOLBAR (工程 Filter 列)
     # =========================================================
@@ -2125,10 +2125,11 @@ app.layout = html.Div([
             dcc.Dropdown(
                 id="weather-map-source",
                 options=[
+                    {"label": "Ventusky", "value": "ventusky"},
                     {"label": "Windy", "value": "windy"},
                     {"label": "Copernicus Wave Forecast", "value": "copernicus"},
                 ],
-                value="windy",
+                value="ventusky",
                 clearable=False,
                 searchable=False,
                 style={"width": "270px", "color": "#182333"},
@@ -2160,6 +2161,19 @@ app.layout = html.Div([
                 title="Copernicus Marine F2 Wave Map",
             ),
         ], id="weather-copernicus-view", style={"display": "none"}),
+        html.Div([
+            html.Div([
+                html.H3("Ventusky Interactive Map", style={"margin": "0"}),
+                html.A("Open in Ventusky ↗",
+                       href="https://www.ventusky.com/?p=24.70843;120.75996;9&l=wave",
+                       target="_blank", rel="noopener noreferrer",
+                       style={"color": "#9ed2ff", "fontSize": "14px", "textDecoration": "none"}),
+            ], style={"display": "flex", "alignItems": "center", "gap": "16px",
+                      "flexWrap": "wrap", "marginBottom": "12px"}),
+            # The iframe is mounted only when Weather > Ventusky is visible.
+            # Initializing it inside display:none can give Ventusky a zero-size canvas.
+            html.Div(id="ventusky-iframe-container"),
+        ], id="weather-ventusky-view", style={"display": "none"}),
     ], id="weather-page", style={"display": "none", "padding": "16px",
         "backgroundColor": "#203249", "borderRadius": "8px"}),
     # Dedicated Resources page: SharePoint shortcuts.
@@ -2184,10 +2198,29 @@ app.layout = html.Div([
 @app.callback(
     Output("weather-windy-view", "style"),
     Output("weather-copernicus-view", "style"),
+    Output("weather-ventusky-view", "style"),
+    Output("ventusky-iframe-container", "children"),
     Input("weather-map-source", "value"),
+    Input("main-navigation", "value"),
 )
-def switch_weather_map(source):
-    return ({"display": "none"}, {}) if source == "copernicus" else ({}, {"display": "none"})
+def switch_weather_map(source, page):
+    hidden = {"display": "none"}
+    # Match the standalone HTML test: create a real, sized iframe only
+    # while the Ventusky map is selected and the Weather page is visible.
+    ventusky_visible = source == "ventusky" and page == "weather"
+    ventusky_iframe = html.Iframe(
+        src="https://embed.ventusky.com/?p=24.70843;120.75996;9&l=wave&pin=24.663917;120.716833;dot;D01;24.655306;120.731806;dot;D02;24.647472;120.722833;dot;D03;24.645222;120.705222;dot;D04;24.637694;120.707528;dot;D05;24.625444;120.691194;dot;D06;24.671583;120.711417;dot;D07;24.656611;120.706972;dot;D08;24.654639;120.697417;dot;D09;24.643889;120.694889;dot;D10;24.635361;120.695528;dot;D11;24.631194;120.685806;dot;D12;24.693778;120.768917;dot;C01;24.700778;120.759417;dot;C02;24.717611;120.762472;dot;C03;24.715722;120.751167;dot;C04;24.704139;120.749333;dot;C05;24.706639;120.742028;dot;C06;24.686306;120.756639;dot;C07;24.676056;120.742472;dot;C08;24.681667;120.737278;dot;C09;24.691750;120.747278;dot;C10;24.695222;120.739222;dot;C11;24.709528;120.770861;dot;B01;24.728278;120.774306;dot;B02;24.753194;120.788778;dot;B03;24.766472;120.797972;dot;B04;24.772861;120.814750;dot;B05;24.777778;120.807972;dot;B06;24.727389;120.759111;dot;B07;24.738083;120.760694;dot;B08;24.743944;120.771194;dot;B09;24.762778;120.781167;dot;B10;24.774111;120.792028;dot;B11;24.783000;120.800667;dot;B12;24.704278;120.780500;dot;A01;24.720111;120.793417;dot;A02;24.726583;120.805944;dot;A03;24.733972;120.799306;dot;A04;24.746667;120.815972;dot;A05;24.756556;120.827778;dot;A06;24.718972;120.772528;dot;A07;24.723056;120.784056;dot;A08;24.737472;120.785972;dot;A09;24.744167;120.794750;dot;A10;24.754000;120.802500;dot;A11;24.755139;120.812194;dot;A12",
+        style={"display": "block", "width": "100%", "height": "70vh",
+               "minHeight": "480px", "border": "0", "borderRadius": "8px",
+               "backgroundColor": "#444"},
+        title="Ventusky F2 Weather Map",
+    ) if ventusky_visible else None
+    return (
+        {} if source == "windy" else hidden,
+        {} if source == "copernicus" else hidden,
+        {} if source == "ventusky" else hidden,
+        ventusky_iframe,
+    )
 
 
 @app.callback(
@@ -3332,21 +3365,21 @@ print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=T
 
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
-
-#本機測試
-# server = app.server
 # if __name__ == "__main__":
 #     app.run(
-#         debug=True,
-#         host="127.0.0.1",
+#         debug=False,
+#         host="0.0.0.0",
 #         port=8050
-#     )    
+#     )
+
+#本機測試
+server = app.server
+if __name__ == "__main__":
+    app.run(
+        debug=True,
+        host="127.0.0.1",
+        port=8050
+    )    
     
     
 #http://127.0.0.1:8050/
