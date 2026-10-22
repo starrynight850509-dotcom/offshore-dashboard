@@ -604,6 +604,26 @@ def load_latest_wave_forecast():
 # ------------------------------------------------------------
 # 7. 建立 Wave Forecast Plotly Chart
 # ------------------------------------------------------------
+# Open-Meteo forecast: read-only Neon source.
+def load_open_meteo_forecast():
+    with engine.connect() as c:
+        data = pd.read_sql_query(text("""SELECT fetched_at, valid_time, model, lat, lon,
+            wave_height_m, wave_period_s, wave_direction_deg
+            FROM open_meteo_wave_forecast
+            WHERE model=:model AND lat=:lat AND lon=:lon ORDER BY valid_time"""), c,
+            params={"model":"best_match","lat":F2_LAT,"lon":F2_LON})
+    for column in ("valid_time", "fetched_at"):
+        if not data.empty:
+            data[column] = pd.to_datetime(data[column],utc=True).dt.tz_convert("Asia/Taipei")
+    return data
+
+def get_open_meteo_last_updated():
+    with engine.connect() as c:
+        value = c.execute(text("""SELECT MAX(fetched_at) FROM open_meteo_wave_forecast
+            WHERE model=:model AND lat=:lat AND lon=:lon"""),
+            {"model":"best_match","lat":F2_LAT,"lon":F2_LON}).scalar()
+    return pd.to_datetime(value,utc=True).tz_convert("Asia/Taipei") if value is not None else None
+
 def wave_arrow(deg):
     # Windy direction = FROM
     # 顯示浪實際前進方向 = +180°
@@ -758,6 +778,12 @@ try:
 finally:
     _STARTUP_INSTRUMENT_SCHEDULE = False
     _startup_executor.shutdown(wait=True)
+
+try:
+    open_meteo_df_status = measure_startup("Load Open-Meteo forecast (Neon)", load_open_meteo_forecast)
+except Exception as exc:
+    print(f"Open-Meteo startup unavailable: {exc}")
+    open_meteo_df_status = pd.DataFrame()
 
 if not wave_df_status.empty:
     last_updated = wave_df_status["fetched_at"].max()
@@ -983,6 +1009,7 @@ def _startup_diagnostics_html():
     groups = [
         ("Load schedule (Neon)", "Schedule · ", "#3b82f6"),
         ("Load wave forecast (Neon)", "Wave forecast · ", "#8b5cf6"),
+        ("Load Open-Meteo forecast (Neon)", "Open-Meteo · ", "#0d9488"),
         ("Initialize wave DB", "Wave DB · ", "#f59e0b"),
     ]
     main_steps = {label: duration for label, duration in steps if " · " not in label}
@@ -2020,6 +2047,9 @@ app.layout = html.Div([
                 "lineHeight": "1.5"
             }
         ),
+        html.Div(id="open-meteo-update-status", className="ocean-windy-status",
+            children="Open-Meteo Forecast | Checking... | Forecast Data – Reference Only",
+            style={"color":"#6b7280","fontSize":"12px","marginTop":"3px","lineHeight":"1.5"}),
     # =========================================================
     # TOOLBAR (工程 Filter 列)
     # =========================================================
@@ -2275,6 +2305,10 @@ def cached_chart_wave(time_bucket):
     # repeated PostgreSQL reads while rapidly switching project filters.
     return load_latest_wave_forecast()
 
+@lru_cache(maxsize=3)
+def cached_chart_open_meteo(bucket):
+    return load_open_meteo_forecast()
+
 #%%Callback (dynamic update)
 @app.callback(
     Output("schedule-version-store", "data"),
@@ -2508,14 +2542,14 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
                 name="Windy Forecast Hs",
     
                 line=dict(
-                    color="#111827",
-                    width=1,
-                    dash="3px,2px"
+                    color="#2563EB",
+                    width=0.5,
+                    dash="5px,2px"
                 ),
                 
                 marker=dict(
                     color="#2563EB",
-                    size=3
+                    size=4
                 ),
     
                 customdata=wave_customdata,
@@ -2534,6 +2568,22 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
                 showlegend=False
             )
         )
+    try:
+        meteo = cached_chart_open_meteo(int(time.time() // 300)).copy()
+    except Exception as exc:
+        print(f"Open-Meteo chart unavailable: {exc}")
+        meteo = pd.DataFrame()
+    if not meteo.empty:
+        meteo["wave_arrow"] = meteo["wave_direction_deg"].apply(
+            lambda d: wave_arrow(d) if pd.notna(d) else "—")
+        meta = np.stack([meteo["wave_period_s"], meteo["wave_direction_deg"], meteo["wave_arrow"]],axis=-1)
+        fig.add_trace(go.Scatter(x=meteo["valid_time"],y=meteo["wave_height_m"],
+            yaxis="y2",mode="lines+markers",name="Open-Meteo Forecast Hs",
+            line=dict(color="#0d9488",width=0.5,dash="5px,2px"),marker=dict(color="#0d9488",size=4),
+            customdata=meta,showlegend=False,
+            hovertemplate=("<b>Open-Meteo Wave Forecast</b><br>Time: %{x|%Y-%m-%d %H:%M}<br>"
+                "Forecast Hs: %{y:.2f} m<br>Period: %{customdata[0]:.1f} s<br>"
+                "Direction: %{customdata[1]:.0f}° %{customdata[2]}<extra></extra>")))
         # ---------------------------------------------------------
         # Wave Hs horizontal reference lines
         # 0, 1, 2, 3, 4, 5 m
@@ -3153,6 +3203,25 @@ def update_windy_status(_):
     except Exception as e:
         print(f"Windy status check failed: {e}")
         return status_line("Error: Status Unavailable", "#dc2626")
+@app.callback(Output("open-meteo-update-status","children"),
+              Input("windy-status-interval","n_intervals"))
+def update_open_meteo_status(_):
+    def line(message,color):
+        return ["Open-Meteo Forecast | ",html.Span(message,style={"color":color,"fontWeight":"500"}),
+                " | Forecast Data – Reference Only"]
+    try:
+        updated=get_open_meteo_last_updated()
+        if updated is None: return line("Error: Data Unavailable","#dc2626")
+        age=max(0,(pd.Timestamp.now(tz="Asia/Taipei")-updated).total_seconds()/60)
+        label=f"{updated:%Y-%m-%d %H:%M}"
+        if age>90:
+            h,m=divmod(int(age),60)
+            return line(f"Stale: {h}h {m:02d}m (Forecast Last Updated: {label})","#d97706")
+        return line(f"Forecast Updated: {label}","#6b7280")
+    except Exception as exc:
+        print(f"Open-Meteo status failed: {exc}")
+        return line("Error: Status Unavailable","#dc2626")
+
 #%% KPI Auto Refresh
 @app.callback(
     Output("kpi-container", "children"),
