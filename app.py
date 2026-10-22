@@ -1384,7 +1384,7 @@ def _analytics(fragment=False):
         .startup-detail {{ color: #64748b; background: #fff; }}
         .startup-detail td:first-child {{ padding-left: 22px; }}
         .startup-detail td {{ padding-top: 6px; padding-bottom: 6px; }}
-        .startup-detail-top {{ background: #f0f9ff; color: #0f172a; font-weight: 600; }}
+        .startup-detail-top {{ background: #fff; color: #0f172a; font-weight: 600; }}
         .startup-detail-top td:first-child {{ border-left: 3px solid #0284c7; padding-left: 19px; }}
         .startup-top-marker {{ display: inline-block; margin-left: 6px; padding: 2px 5px;
             border-radius: 4px; background: #dbeafe; color: #1d4ed8; font-size: 11px; font-weight: 700; }}
