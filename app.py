@@ -2229,7 +2229,8 @@ app.layout = html.Div([
             for label, value in [("Overview", "overview"),
                                  ("Schedule", "schedule"),
                                  ("Weather", "weather"),
-                                 ("Resources", "resources")]
+                                 ("Resources", "resources"),
+                                 ("Licenses", "licenses")]
         ],
         className="ocean-navigation",
         style={"marginBottom": "10px", "width": "fit-content", "maxWidth": "100%"}
@@ -2462,7 +2463,59 @@ app.layout = html.Div([
                rel="noopener noreferrer",
                style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
     ], id="resources-page", style={"display": "none", "padding": "16px",
-        "backgroundColor": "#203249", "borderRadius": "8px"})
+        "backgroundColor": "#203249", "borderRadius": "8px"}),
+    # Licenses & Attribution — source inventory; terms must be reviewed per deployment.
+    html.Div([
+        html.H3("Licenses & Attribution", style={"marginTop": "0", "marginBottom": "8px"}),
+        html.P("Third-party software, data sources, attribution requirements and usage notices.",
+               style={"color": "#cbd5e1"}),
+        html.H4("Data Sources & Services"),
+        html.Ul([
+            html.Li([html.A(name, href=url, target="_blank", rel="noopener noreferrer",
+                            style={"color": "#9ed2ff"}), " — ", note])
+            for name, url, note in [
+                ("Windy Point Forecast API", "https://account.windy.com/agreements/windy-forecast-api-terms-of-use",
+                 "Proprietary API terms. Trial access is for development only; the testing API returns modified/shuffled data. Terms restrict storing forecast data, derivative databases and redistribution. This application stores Windy forecasts in PostgreSQL: obtain explicit authorization before continuing that use. Provider and original data-source attribution may also be required."),
+                ("Open-Meteo", "https://open-meteo.com/en/terms",
+                 "Forecast data: CC BY 4.0 (credit, license link and indication of modifications). Free hosted API: non-commercial use only; business use requires an applicable commercial plan. The API data license and the API service terms are distinct. Credit should also appear near displayed forecast data."),
+                ("Copernicus Marine Service", "https://help.marine.copernicus.eu/en/articles/4444611-citing-copernicus-marine-products-and-services",
+                 "Copernicus Marine Licence Agreement applies. Suggested derived-product credit: 'Generated using E.U. Copernicus Marine Service Information' plus the DOI(s) of the actual product(s). Product IDs/DOIs and any additional notices remain to be verified."),
+                ("OpenStreetMap", "https://www.openstreetmap.org/copyright",
+                 "Geographic data: ODbL; credit © OpenStreetMap contributors on the map itself. If using OSM Foundation tile servers, follow the separate tile usage policy; tile imagery and other basemaps may have additional terms."),
+                ("Ventusky", "https://embed.ventusky.com/",
+                 "External embedded weather map. Use the provider's official embed service and preserve its attribution; review embedding and commercial-use terms for this deployment."),
+            ]
+        ], style={"lineHeight": "1.85"}),
+        html.H4("Third-Party Software", style={"marginTop": "18px"}),
+        html.P("Licenses below describe the named projects; deployed package versions, transitive dependencies, bundled assets and any required copyright notices must be checked separately.",
+               style={"color": "#cbd5e1"}),
+        html.Ul([
+            html.Li([html.A(name, href=url, target="_blank", rel="noopener noreferrer",
+                            style={"color": "#9ed2ff"}), " — ", license_name])
+            for name, license_name, url in [
+                ("Dash", "MIT", "https://github.com/plotly/dash/blob/dev/LICENSE"),
+                ("Plotly.py", "MIT", "https://github.com/plotly/plotly.py/blob/main/LICENSE.txt"),
+                ("pandas", "BSD-3-Clause", "https://github.com/pandas-dev/pandas/blob/main/LICENSE"),
+                ("NumPy", "BSD-3-Clause; bundled third-party notices may apply", "https://github.com/numpy/numpy/blob/main/LICENSE.txt"),
+                ("Flask", "BSD-3-Clause", "https://github.com/pallets/flask/blob/main/LICENSE.txt"),
+                ("SQLAlchemy", "MIT", "https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE"),
+                ("psycopg2", "LGPL with exceptions", "https://www.psycopg.org/docs/license.html"),
+                ("Requests", "Apache-2.0", "https://github.com/psf/requests/blob/main/LICENSE"),
+                ("python-dotenv", "BSD-3-Clause", "https://github.com/theskumar/python-dotenv/blob/main/LICENSE"),
+                ("Leaflet 1.9.4", "BSD-2-Clause", "https://github.com/Leaflet/Leaflet/blob/v1.9.4/LICENSE"),
+            ]
+        ], style={"lineHeight": "1.9"}),
+        html.H4("Usage & Disclaimer", style={"marginTop": "18px"}),
+        html.P("Weather forecasts, map layers and visualizations are informational and may be delayed, incomplete or inaccurate."),
+        html.P("Testing API – Not for operational use.",
+               style={"fontWeight": "700", "color": "#fbbf24"}),
+        html.P("Do not use this dashboard as the sole basis for offshore operations, navigation or safety-critical decisions."),
+        html.P("Third-party names do not imply sponsorship or endorsement. This page is an attribution inventory, not certification of compliance or permission to store, redistribute or commercially use third-party data. Confirm the actual subscriptions, data products, deployment dependencies, LICENSE/NOTICE obligations and any necessary provider permissions before production or distribution.",
+               style={"color": "#cbd5e1"}),
+        html.P("Licensing references reviewed: 2026-10-23 · Outstanding checks: Windy storage permission; Open-Meteo commercial API plan; Copernicus product DOIs; deployed dependency inventory.",
+               style={"fontSize": "12px", "color": "#94a3b8"}),
+    ], id="licenses-page", style={"display": "none", "padding": "16px",
+        "backgroundColor": "#203249", "borderRadius": "8px", "lineHeight": "1.6"})
 ], className="ocean-app")
 
 @app.callback(
@@ -2498,6 +2551,7 @@ def switch_weather_map(source, page):
     Output("schedule-page", "style"),
     Output("weather-page", "style"),
     Output("resources-page", "style"),
+    Output("licenses-page", "style"),
     Input("main-navigation", "value")
 )
 def switch_main_page(page):
@@ -2511,7 +2565,8 @@ def switch_main_page(page):
     return (overview if page == "overview" else hidden,
             schedule if page == "schedule" else hidden,
             weather if page == "weather" else hidden,
-            resources if page == "resources" else hidden)
+            resources if page == "resources" else hidden,
+            resources if page == "licenses" else hidden)
 
 # Cached chart inputs: project/filter changes should not repeat preprocessing or SQL reads.
 @lru_cache(maxsize=4)
@@ -3689,21 +3744,21 @@ print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=T
 
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
+# if __name__ == "__main__":
+#     app.run(
+#         debug=False,
+#         host="0.0.0.0",
+#         port=8050
+#     )
 
 #本機測試
-# server = app.server
-# if __name__ == "__main__":
-#    app.run(
-#        debug=True,
-#        host="127.0.0.1",
-#        port=8050
-#    )    
+server = app.server
+if __name__ == "__main__":
+   app.run(
+       debug=True,
+       host="127.0.0.1",
+       port=8050
+   )    
     
     
 #http://127.0.0.1:8050/
