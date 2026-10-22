@@ -26,8 +26,24 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from functools import lru_cache
 import time
+import threading
 from dash import State, no_update
 from dotenv import load_dotenv
+# Per-worker startup diagnostics (not persisted across Render restarts).
+_STARTUP_BEGIN = time.perf_counter()
+_STARTUP_STEPS = []
+_STARTUP_LOCK = threading.Lock()
+
+def measure_startup(label, operation):
+    started = time.perf_counter()
+    try:
+        return operation()
+    finally:
+        elapsed = time.perf_counter() - started
+        with _STARTUP_LOCK:
+            _STARTUP_STEPS.append((label, elapsed))
+        print(f"[STARTUP] {label}: {elapsed:.3f} s", flush=True)
+
 load_dotenv(".env")
 print("DATABASE_URL loaded:", bool(os.getenv("DATABASE_URL")))
 print("WINDY_API_KEY loaded:", bool(os.getenv("WINDY_API_KEY")))
@@ -128,7 +144,7 @@ def get_schedule_updated_at():
     finally:
         engine.dispose()
 # Load schedule data
-df, hourly_df, data_updated = load_schedule_data()
+df, hourly_df, data_updated = measure_startup("Load schedule (Neon)", load_schedule_data)
 
 #%% Environment Variables
 # ============================================================
@@ -683,12 +699,12 @@ def build_wave_chart():
 # Web App 啟動時只確認 PostgreSQL table 存在。
 # 不在 startup 呼叫 Windy API，避免外部 API 延遲拖慢網站啟動。
 # Forecast 更新改由獨立 scheduled job 執行。
-_init_wave_db()
+measure_startup("Initialize wave DB", _init_wave_db)
 # ============================================================
 # Windy forecast last update status
 # ============================================================
 
-wave_df_status = load_latest_wave_forecast()
+wave_df_status = measure_startup("Load wave forecast (Neon)", load_latest_wave_forecast)
 
 if not wave_df_status.empty:
     last_updated = wave_df_status["fetched_at"].max()
@@ -901,6 +917,26 @@ def _sessionize(v):
     )
 
     return v.drop(columns="_session")
+
+
+def _startup_diagnostics_html():
+    from html import escape
+    with _STARTUP_LOCK:
+        steps = list(_STARTUP_STEPS)
+    total = time.perf_counter() - _STARTUP_BEGIN if not globals().get("_STARTUP_READY_SECONDS") else _STARTUP_READY_SECONDS
+    rows = "".join(
+        f"<tr><td>{escape(label)}</td><td>{elapsed:.3f} s</td></tr>"
+        for label, elapsed in steps
+    )
+    rows += f'<tr><td><strong>Python startup total</strong></td><td><strong>{total:.3f} s</strong></td></tr>'
+    return (
+        '<h3>Startup Diagnostics</h3>'
+        '<p class="note">Current Python worker only · timings reset on restart. '
+        'Render wake-up/queue time before Python starts is not measured.</p>'
+        '<table class="analytics-table" style="background:white;table-layout:auto">'
+        '<thead><tr><th>Startup stage</th><th>Duration</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+    )
 
 
 def _analytics():
@@ -1239,6 +1275,8 @@ def _analytics():
         {SESSION_MINUTES} minutes
     </p>
 
+    {_startup_diagnostics_html()}
+
     <div class="analytics-layout">
 
         <!-- Left: Summary -->
@@ -1542,7 +1580,7 @@ def calculate_kpi(source_df):
         "Day Off": off_days,
         "Standby": standby_days}
     return kpi_data
-kpi_data = calculate_kpi(df)
+kpi_data = measure_startup("Calculate KPI", lambda: calculate_kpi(df))
 def build_card(title, value):
     ## 外框
     return html.Div([
@@ -2951,27 +2989,44 @@ def update_personnel_options(schedule_version, selected_personnel, old_options):
 
 #%% Overall F2 tower completion (unaffected by display filters)
 def calculate_overall_tower_completion(source_df, master_towers):
-    """Count turbines that have ever reached 100% Progress in schedule history."""
+    """Count distinct jackets ever reaching 100%, using vectorized extraction."""
     tower_set = set(master_towers)
     if not tower_set:
         return 0, 0
-    rows = source_df.copy()
-    def tower_from_record(row):
-        if str(row.get("Lane", "")).strip() == "Non-Offshore":
-            return None
-        for candidate in (row.get("Task", ""), row.get("Lane", "")):
-            match = re.search(r"(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)", str(candidate), re.I)
-            if match:
-                code = re.sub(r"[^A-Za-z0-9]", "", match.group(1)).upper()
-                return f"{code[0]}{int(code[1:]):02d}"
-        return None
-    rows["_tower"] = rows.apply(tower_from_record, axis=1)
-    rows = rows.loc[rows["_tower"].isin(tower_set)].copy()
-    if rows.empty:
+    if source_df.empty:
         return 0, len(tower_set)
-    rows["_progress_numeric"] = pd.to_numeric(rows["Progress"], errors="coerce")
-    completed_towers = rows.loc[rows["_progress_numeric"].ge(100), "_tower"].nunique()
-    return int(completed_towers), len(tower_set)
+
+    # Filter progress first, rather than parsing every schedule record.
+    completed_rows = source_df.loc[
+        pd.to_numeric(source_df["Progress"], errors="coerce").ge(100)
+        & source_df["Lane"].fillna("").astype(str).str.strip().ne("Non-Offshore")
+    ]
+    if completed_rows.empty:
+        return 0, len(tower_set)
+
+    pattern = r"(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)"
+    task_towers = completed_rows["Task"].fillna("").astype(str).str.extract(
+        pattern, flags=re.I, expand=False
+    )
+    lane_towers = completed_rows["Lane"].fillna("").astype(str).str.extract(
+        pattern, flags=re.I, expand=False
+    )
+    raw_towers = task_towers.fillna(lane_towers).dropna()
+    normalized = raw_towers.str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
+    normalized = normalized.str[0] + normalized.str[1:].astype(int).astype(str).str.zfill(2)
+    return int(normalized[normalized.isin(tower_set)].nunique()), len(tower_set)
+
+
+@lru_cache(maxsize=2)
+def cached_completion_counts(schedule_version):
+    """Compute both summary counts once per Neon schedule version."""
+    latest_df, _, _ = load_schedule_cached(schedule_version)
+    master_towers = cached_master_towers()
+    overall_completed, total = calculate_overall_tower_completion(latest_df, master_towers)
+    project_df = latest_df.loc[latest_df["Date"].dt.year.eq(2026)]
+    project_completed, _ = calculate_overall_tower_completion(project_df, master_towers)
+    return overall_completed, total, project_completed
+
 
 @app.callback(
     Output("overall-progress-percent", "children"),
@@ -2982,11 +3037,8 @@ def calculate_overall_tower_completion(source_df, master_towers):
 def update_overall_progress(schedule_version):
     if schedule_version is None:
         return no_update, no_update, no_update
-    latest_df, _, _ = load_schedule_cached(schedule_version)
-    completed, total = calculate_overall_tower_completion(latest_df, cached_master_towers())
+    completed, total, project_completed = cached_completion_counts(schedule_version)
     percentage = (100 * completed / total) if total else 0
-    project_2026_df = latest_df.loc[pd.to_datetime(latest_df["Date"]).dt.year.eq(2026)]
-    project_completed, _ = calculate_overall_tower_completion(project_2026_df, cached_master_towers())
     return f"{percentage:.1f}%", f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}"
 
 #%% Schedule Updated Time Auto Refresh
@@ -3005,23 +3057,27 @@ def update_schedule_status(schedule_version):
         "v1.5.1 Beta | "
         f"Schedule Data Updated: {latest_updated}"
     )
+# End of module initialization (one measurement per Python worker).
+_STARTUP_READY_SECONDS = time.perf_counter() - _STARTUP_BEGIN
+print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=True)
+
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
-
-#本機測試
-# server = app.server
 # if __name__ == "__main__":
 #     app.run(
-#         debug=True,
-#         host="127.0.0.1",
+#         debug=False,
+#         host="0.0.0.0",
 #         port=8050
-#     )    
+#     )
+
+#本機測試
+server = app.server
+if __name__ == "__main__":
+    app.run(
+        debug=True,
+        host="127.0.0.1",
+        port=8050
+    )    
     
     
 #http://127.0.0.1:8050/
