@@ -65,113 +65,81 @@ print("WINDY_API_KEY loaded:", bool(os.getenv("WINDY_API_KEY")))
 #%% Load schedule data from Neon PostgreSQL
 
 def load_schedule_data():
-    
-    database_url = os.getenv("DATABASE_URL")
+    """Load schedule using the shared, thread-safe SQLAlchemy connection pool."""
+    connect_started = time.perf_counter()
+    with engine.connect() as conn:
+        if _STARTUP_INSTRUMENT_SCHEDULE:
+            record_startup_step("Schedule · Connect", time.perf_counter() - connect_started)
+        query_started = time.perf_counter()
+        rows = conn.execute(text("""
+            SELECT name, data, updated_at
+            FROM schedule_data
+            WHERE name IN ('progress', 'hourly')
+        """)).fetchall()
+        if _STARTUP_INSTRUMENT_SCHEDULE:
+            record_startup_step("Schedule · Query + fetch", time.perf_counter() - query_started)
 
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is not configured")
+    conversion_started = time.perf_counter()
+    schedule = {
+        name: {
+            "df": pd.DataFrame(data),
+            "updated_at": updated_at
+        }
+        for name, data, updated_at in rows
+    }
 
-    engine_started = time.perf_counter()
-    schedule_engine = create_engine(
-        database_url.replace(
-            "postgresql://",
-            "postgresql+psycopg2://",
-            1
-        ),
-        pool_pre_ping=True
+    if "progress" not in schedule or "hourly" not in schedule:
+        raise RuntimeError("Schedule data is incomplete")
+
+    progress_df = schedule["progress"]["df"]
+    hourly_data = schedule["hourly"]["df"]
+
+    for col in ["Date", "Start", "End"]:
+        progress_df[col] = pd.to_datetime(progress_df[col])
+
+    hourly_data["Date"] = pd.to_datetime(
+        hourly_data["Date"]
+    )
+
+    last_updated = max(
+        schedule["progress"]["updated_at"],
+        schedule["hourly"]["updated_at"]
+    )
+
+    updated_text = (
+        pd.Timestamp(last_updated)
+        .tz_convert("Asia/Taipei")
+        .strftime("%Y-%m-%d %H:%M")
     )
 
     if _STARTUP_INSTRUMENT_SCHEDULE:
-        record_startup_step("Schedule · Engine setup", time.perf_counter() - engine_started)
+        record_startup_step("Schedule · DataFrame conversion", time.perf_counter() - conversion_started)
 
-    try:
-        connect_started = time.perf_counter()
-        with schedule_engine.connect() as conn:
-            if _STARTUP_INSTRUMENT_SCHEDULE:
-                record_startup_step("Schedule · Connect", time.perf_counter() - connect_started)
-            query_started = time.perf_counter()
-            rows = conn.execute(text("""
-                SELECT name, data, updated_at
-                FROM schedule_data
-                WHERE name IN ('progress', 'hourly')
-            """)).fetchall()
-            if _STARTUP_INSTRUMENT_SCHEDULE:
-                record_startup_step("Schedule · Query + fetch", time.perf_counter() - query_started)
+    print("Schedule data loaded from Neon")
 
-        conversion_started = time.perf_counter()
-        schedule = {
-            name: {
-                "df": pd.DataFrame(data),
-                "updated_at": updated_at
-            }
-            for name, data, updated_at in rows
-        }
+    return progress_df, hourly_data, updated_text
 
-        if "progress" not in schedule or "hourly" not in schedule:
-            raise RuntimeError("Schedule data is incomplete")
-
-        progress_df = schedule["progress"]["df"]
-        hourly_data = schedule["hourly"]["df"]
-
-        for col in ["Date", "Start", "End"]:
-            progress_df[col] = pd.to_datetime(progress_df[col])
-
-        hourly_data["Date"] = pd.to_datetime(
-            hourly_data["Date"]
-        )
-
-        last_updated = max(
-            schedule["progress"]["updated_at"],
-            schedule["hourly"]["updated_at"]
-        )
-
-        updated_text = (
-            pd.Timestamp(last_updated)
-            .tz_convert("Asia/Taipei")
-            .strftime("%Y-%m-%d %H:%M")
-        )
-
-        if _STARTUP_INSTRUMENT_SCHEDULE:
-            record_startup_step("Schedule · DataFrame conversion", time.perf_counter() - conversion_started)
-
-        print("Schedule data loaded from Neon")
-
-        return progress_df, hourly_data, updated_text
-
-    finally:
-        dispose_started = time.perf_counter()
-        schedule_engine.dispose()
-        if _STARTUP_INSTRUMENT_SCHEDULE:
-            record_startup_step("Schedule · Dispose", time.perf_counter() - dispose_started)
 @lru_cache(maxsize=2)
 def load_schedule_cached(version):
     return load_schedule_data()
 
 def get_schedule_updated_at():
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is not configured")
+    with engine.connect() as conn:
+        return conn.execute(text("""
+            SELECT MAX(updated_at)
+            FROM schedule_data
+            WHERE name IN ('progress', 'hourly')
+        """)).scalar()
 
-    engine = create_engine(
-        database_url.replace(
-            "postgresql://",
-            "postgresql+psycopg2://",
-            1
-        ),
-        pool_pre_ping=True
-    )
+# One Engine shared by all three startup readers. Each thread checks out
+# its own connection from the same QueuePool; connections are never shared
+# concurrently across threads.
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not configured")
+SQLALCHEMY_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+engine = create_engine(SQLALCHEMY_URL, pool_pre_ping=True, pool_size=3, max_overflow=2)
 
-    try:
-        with engine.connect() as conn:
-            updated_at = conn.execute(text("""
-                SELECT MAX(updated_at)
-                FROM schedule_data
-                WHERE name IN ('progress', 'hourly')
-            """)).scalar()
-
-        return updated_at
-    finally:
-        engine.dispose()
 # Begin the independent schedule query while wave initialization runs.
 # The future is joined before any code accesses df/hourly_df.
 _STARTUP_INSTRUMENT_SCHEDULE = True
@@ -219,10 +187,6 @@ SQLALCHEMY_URL = DATABASE_URL.replace(
     1
 )
 
-engine = create_engine(
-    SQLALCHEMY_URL,
-    pool_pre_ping=True
-)
 #%% F2 Wind Farm Tower Master (read-only)
 def load_tower_master():
     """Return canonical F2 turbine IDs; schedule/progress remains independent."""
@@ -885,9 +849,6 @@ SQLALCHEMY_URL = DATABASE_URL.replace(
     "postgresql+psycopg2://",
     1
 )
-
-engine = create_engine(SQLALCHEMY_URL, pool_pre_ping=True)
-
 
 def _adb():
     c = psycopg2.connect(DATABASE_URL)
