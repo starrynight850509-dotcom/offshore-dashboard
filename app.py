@@ -37,9 +37,12 @@ _STARTUP_LOCK = threading.Lock()
 
 _STARTUP_INSTRUMENT_SCHEDULE = False
 _STARTUP_INSTRUMENT_WAVE = False
+_STARTUP_INSTRUMENT_OPEN_METEO = False
 
 def record_startup_step(label, elapsed):
     if label.startswith("Wave forecast · ") and not _STARTUP_INSTRUMENT_WAVE:
+        return
+    if label.startswith("Open-Meteo · ") and not _STARTUP_INSTRUMENT_OPEN_METEO:
         return
     with _STARTUP_LOCK:
         _STARTUP_STEPS.append((label, elapsed))
@@ -606,15 +609,21 @@ def load_latest_wave_forecast():
 # ------------------------------------------------------------
 # Open-Meteo forecast: read-only Neon source.
 def load_open_meteo_forecast():
+    connect_started = time.perf_counter()
     with engine.connect() as c:
+        record_startup_step("Open-Meteo · Connect", time.perf_counter() - connect_started)
+        query_started = time.perf_counter()
         data = pd.read_sql_query(text("""SELECT fetched_at, valid_time, model, lat, lon,
             wave_height_m, wave_period_s, wave_direction_deg
             FROM open_meteo_wave_forecast
             WHERE model=:model AND lat=:lat AND lon=:lon ORDER BY valid_time"""), c,
             params={"model":"best_match","lat":F2_LAT,"lon":F2_LON})
-    for column in ("valid_time", "fetched_at"):
-        if not data.empty:
-            data[column] = pd.to_datetime(data[column],utc=True).dt.tz_convert("Asia/Taipei")
+        record_startup_step("Open-Meteo · Query + fetch", time.perf_counter() - query_started)
+    conversion_started = time.perf_counter()
+    if not data.empty:
+        for column in ("valid_time", "fetched_at"):
+            data[column] = pd.to_datetime(data[column], utc=True).dt.tz_convert("Asia/Taipei")
+    record_startup_step("Open-Meteo · DataFrame conversion", time.perf_counter() - conversion_started)
     return data
 
 def get_open_meteo_last_updated():
@@ -779,11 +788,15 @@ finally:
     _STARTUP_INSTRUMENT_SCHEDULE = False
     _startup_executor.shutdown(wait=True)
 
+_STARTUP_INSTRUMENT_OPEN_METEO = True
 try:
-    open_meteo_df_status = measure_startup("Load Open-Meteo forecast (Neon)", load_open_meteo_forecast)
-except Exception as exc:
-    print(f"Open-Meteo startup unavailable: {exc}")
-    open_meteo_df_status = pd.DataFrame()
+    try:
+        open_meteo_df_status = measure_startup("Load Open-Meteo forecast (Neon)", load_open_meteo_forecast)
+    except Exception as exc:
+        print(f"Open-Meteo startup unavailable: {exc}")
+        open_meteo_df_status = pd.DataFrame()
+finally:
+    _STARTUP_INSTRUMENT_OPEN_METEO = False
 
 if not wave_df_status.empty:
     last_updated = wave_df_status["fetched_at"].max()
@@ -3446,21 +3459,21 @@ print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=T
 
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
-
-#本機測試
-# server = app.server
 # if __name__ == "__main__":
 #     app.run(
-#         debug=True,
-#         host="127.0.0.1",
+#         debug=False,
+#         host="0.0.0.0",
 #         port=8050
-#     )    
+#     )
+
+#本機測試
+server = app.server
+if __name__ == "__main__":
+    app.run(
+        debug=True,
+        host="127.0.0.1",
+        port=8050
+    )    
     
     
 #http://127.0.0.1:8050/
