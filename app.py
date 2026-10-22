@@ -1387,7 +1387,7 @@ def personnel_names(source_df):
         if column in source_df.columns:
             for value in source_df[column].dropna().astype(str):
                 names.update(split_personnel(value))
-    return sorted(names, key=str.casefold)
+    return sorted(names, key=lambda name: (name.casefold() == "beex teams", name.casefold()))
 
 category_order = [
     "Inspection",
@@ -1663,7 +1663,7 @@ app.layout = html.Div([
     # =========================================================
     html.Div([
         html.H2(
-            "🌊F2 Offshore Wind Farm Underwater Inspection",
+            "🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
             className="ocean-title",
             style={"marginBottom": "5px"}
         ),
