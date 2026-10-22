@@ -770,33 +770,44 @@ def build_wave_chart():
 # 不在 startup 呼叫 Windy API，避免外部 API 延遲拖慢網站啟動。
 # Forecast 更新改由獨立 scheduled job 執行。
 measure_startup("Initialize wave DB", _init_wave_db)
-# ============================================================
-# Windy forecast last update status
-# ============================================================
-
+# Schedule was already submitted above. Run both forecast reads concurrently
+# with it; keep DB initialization ahead of the forecast queries.
 _STARTUP_INSTRUMENT_WAVE = True
+_STARTUP_INSTRUMENT_OPEN_METEO = True
+_forecast_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="neon-forecast")
 try:
-    wave_df_status = measure_startup("Load wave forecast (Neon)", load_latest_wave_forecast)
-finally:
-    _STARTUP_INSTRUMENT_WAVE = False
+    _windy_future = _forecast_executor.submit(
+        measure_startup, "Load wave forecast (Neon)", load_latest_wave_forecast
+    )
+    _open_meteo_future = _forecast_executor.submit(
+        measure_startup, "Load Open-Meteo forecast (Neon)", load_open_meteo_forecast
+    )
 
-# Both Neon startup branches have now run concurrently. Propagate schedule errors
-# rather than letting the Dashboard start with missing or stale schedule data.
-try:
-    df, hourly_df, data_updated = _schedule_future.result()
+    # Preserve the existing behavior: schedule and Windy errors are fatal,
+    # whereas an unavailable Open-Meteo forecast does not stop the dashboard.
+    # Always collect all futures before shutting down the executors.
+    _startup_errors = []
+    try:
+        df, hourly_df, data_updated = _schedule_future.result()
+    except Exception as exc:
+        _startup_errors.append(exc)
+    try:
+        wave_df_status = _windy_future.result()
+    except Exception as exc:
+        _startup_errors.append(exc)
+    try:
+        open_meteo_df_status = _open_meteo_future.result()
+    except Exception as exc:
+        print(f"Open-Meteo startup unavailable: {exc}", flush=True)
+        open_meteo_df_status = pd.DataFrame()
+    if _startup_errors:
+        raise _startup_errors[0]
 finally:
     _STARTUP_INSTRUMENT_SCHEDULE = False
-    _startup_executor.shutdown(wait=True)
-
-_STARTUP_INSTRUMENT_OPEN_METEO = True
-try:
-    try:
-        open_meteo_df_status = measure_startup("Load Open-Meteo forecast (Neon)", load_open_meteo_forecast)
-    except Exception as exc:
-        print(f"Open-Meteo startup unavailable: {exc}")
-        open_meteo_df_status = pd.DataFrame()
-finally:
+    _STARTUP_INSTRUMENT_WAVE = False
     _STARTUP_INSTRUMENT_OPEN_METEO = False
+    _forecast_executor.shutdown(wait=True)
+    _startup_executor.shutdown(wait=True)
 
 if not wave_df_status.empty:
     last_updated = wave_df_status["fetched_at"].max()
@@ -3459,21 +3470,21 @@ print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=T
 
 #%%Run server
 #render佈署
-# if __name__ == "__main__":
-#     app.run(
-#         debug=False,
-#         host="0.0.0.0",
-#         port=8050
-#     )
-
-#本機測試
-server = app.server
 if __name__ == "__main__":
     app.run(
-        debug=True,
-        host="127.0.0.1",
+        debug=False,
+        host="0.0.0.0",
         port=8050
-    )    
+    )
+
+#本機測試
+# server = app.server
+# if __name__ == "__main__":
+#     app.run(
+#         debug=True,
+#         host="127.0.0.1",
+#         port=8050
+#     )    
     
     
 #http://127.0.0.1:8050/
