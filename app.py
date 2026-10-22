@@ -977,11 +977,13 @@ def _startup_diagnostics_html():
     ]
     main_steps = {label: duration for label, duration in steps if " · " not in label}
 
-    def row(label, elapsed, color, denominator, nested=False):
+    def row(label, elapsed, color, denominator, nested=False, top_detail=False):
         percent = elapsed / denominator * 100 if denominator > 0 else 0
         if nested:
+            marker = ' <span class="startup-top-marker">Highest</span>' if top_detail else ''
+            css_class = 'startup-detail startup-detail-top' if top_detail else 'startup-detail'
             return (
-                f'<tr class="startup-detail"><td>↳ {escape(label)}</td>'
+                f'<tr class="{css_class}"><td>↳ {escape(label)}{marker}</td>'
                 f'<td class="duration">{elapsed:.3f} s</td>'
                 f'<td class="duration">{percent:.1f}%</td><td></td></tr>'
             )
@@ -1000,14 +1002,17 @@ def _startup_diagnostics_html():
             continue
         duration = main_steps[main_label]
         rows += row(main_label, duration, color, total)
-        # Deduplicate identical stage names: later dashboard refreshes are not startup work.
-        seen = set()
+        # Deduplicate startup sub-stages and highlight the slowest within each parent.
+        details = {}
         for label, value in steps:
             if label.startswith(detail_prefix):
                 short_label = label[len(detail_prefix):]
-                if short_label not in seen:
-                    rows += row(short_label, value, color, duration, nested=True)
-                    seen.add(short_label)
+                if short_label not in details:
+                    details[short_label] = value
+        highest = max(details, key=details.get) if details else None
+        for short_label, value in details.items():
+            rows += row(short_label, value, color, duration, nested=True,
+                        top_detail=(short_label == highest))
 
     grouped_names = {g[0] for g in groups}
     for label, elapsed in steps:
@@ -1177,15 +1182,15 @@ def _analytics(fragment=False):
         }}
 
         .section-title {{
-            font-size: 18px;
+            font-size: 16px;
             font-weight: bold;
-            margin: 20px 0 5px;
+            margin: 12px 0 4px;
         }}
 
         .card-row {{
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 8px;
         }}
 
         .card {{
@@ -1194,13 +1199,14 @@ def _analytics(fragment=False):
             background: white;
             border: 1px solid #ddd;
             border-radius: 10px;
-            padding: 15px 12px;
+            padding: 9px 10px;
+            font-size: 13px;
             text-align: center;
             box-sizing: border-box;
         }}
 
         .card b {{
-            font-size: 26px;
+            font-size: 21px;
             color: #1f77b4;
         }}
 
@@ -1280,7 +1286,7 @@ def _analytics(fragment=False):
             box-sizing: border-box;
             margin-top: 5px;
             padding: 5px 2px;
-            font-size: 12px;
+            font-size: 13px;
         }}
 
         .filter-label {{ display: block; }}
@@ -1362,7 +1368,7 @@ def _analytics(fragment=False):
         .startup-diagnostics {{ margin-top: 0; }}
         .startup-diagnostics h3 {{ margin-bottom: 8px; }}
         .startup-table-wrap {{ width: 100%; overflow-x: auto; }}
-        .startup-table {{ width: 100%; border-collapse: collapse; background: white; font-size: 12px; }}
+        .startup-table {{ width: 100%; border-collapse: collapse; background: white; font-size: 13px; }}
         .startup-table th, .startup-table td {{ padding: 8px 7px; border-bottom: 1px solid #e5e7eb; text-align: left; }}
         .startup-table th {{ background: #f1f5f9; }}
         .startup-table .duration {{ text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }}
@@ -1373,11 +1379,15 @@ def _analytics(fragment=False):
         .startup-track {{ background: #e2e8f0; height: 10px; border-radius: 5px; overflow: hidden; }}
         .startup-bar {{ height: 100%; border-radius: 5px; }}
         .startup-main {{ background: #eef4fb; border-top: 2px solid #cbd5e1; }}
-        .startup-main td {{ padding-top: 12px; padding-bottom: 12px; font-size: 13px; }}
+        .startup-main td {{ padding-top: 11px; padding-bottom: 11px; font-size: 13px; }}
         .startup-main td:first-child {{ color: #0f172a; }}
         .startup-detail {{ color: #64748b; background: #fff; }}
         .startup-detail td:first-child {{ padding-left: 22px; }}
         .startup-detail td {{ padding-top: 6px; padding-bottom: 6px; }}
+        .startup-detail-top {{ background: #f0f9ff; color: #0f172a; font-weight: 600; }}
+        .startup-detail-top td:first-child {{ border-left: 3px solid #0284c7; padding-left: 19px; }}
+        .startup-top-marker {{ display: inline-block; margin-left: 6px; padding: 2px 5px;
+            border-radius: 4px; background: #dbeafe; color: #1d4ed8; font-size: 11px; font-weight: 700; }}
         .startup-total {{ background: #e2e8f0; border-top: 2px solid #94a3b8; }}
     </style>
 
