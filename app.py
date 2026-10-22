@@ -1894,6 +1894,97 @@ def f2_marine_wave_map():
 
 app = Dash(__name__, server=server)
 
+# First-visit loading screen: shown while Dash mounts and the main Gantt
+# finishes its initial Plotly render. No fixed-duration fake progress.
+# This is browser-side only; it does not change startup or database loading.
+app.index_string = """<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            #initial-dashboard-loading {
+                position: fixed; inset: 0; z-index: 99999;
+                display: flex; align-items: center; justify-content: center;
+                background: #f5f8fc; color: #193451;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                transition: opacity .3s ease, visibility .3s ease;
+            }
+            #initial-dashboard-loading.ready { opacity: 0; visibility: hidden; pointer-events: none; }
+            .initial-loading-content { text-align: center; padding: 24px; }
+            .initial-loading-spinner {
+                width: 38px; height: 38px; margin: 0 auto 20px;
+                border: 3px solid #dbe5f0; border-top-color: #287bb5;
+                border-radius: 50%; animation: initial-dashboard-spin .8s linear infinite;
+            }
+            .initial-loading-title { font-size: 18px; font-weight: 600; }
+            .initial-loading-subtitle { margin-top: 8px; font-size: 13px; color: #64748b; }
+            @keyframes initial-dashboard-spin { to { transform: rotate(360deg); } }
+            @media (prefers-reduced-motion: reduce) {
+                .initial-loading-spinner { animation-duration: 2s; }
+                #initial-dashboard-loading { transition: none; }
+            }
+        </style>
+    </head>
+    <body>
+        <div id="initial-dashboard-loading" role="status" aria-live="polite">
+            <div class="initial-loading-content">
+                <div class="initial-loading-spinner" aria-hidden="true"></div>
+                <div class="initial-loading-title">Loading Dashboard...</div>
+                <div class="initial-loading-subtitle">Preparing F2 Offshore Dashboard</div>
+            </div>
+        </div>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+        <script>
+        (function () {
+            var overlay = document.getElementById('initial-dashboard-loading');
+            if (!overlay) return;
+            var finished = false;
+            function finish() {
+                if (finished) return;
+                finished = true;
+                overlay.classList.add('ready');
+                window.setTimeout(function () { overlay.remove(); }, 350);
+                observer.disconnect();
+            }
+            function checkMainChart() {
+                if (finished) return;
+                var graph = document.querySelector('#gantt-chart .js-plotly-plot');
+                // Plotly attaches _fullLayout after creating the rendered plot.
+                // A real SVG/canvas plot must also be present before dismissing.
+                if (graph && graph._fullLayout &&
+                    graph.querySelector('.main-svg, .gl-container')) {
+                    requestAnimationFrame(function () {
+                        requestAnimationFrame(finish);
+                    });
+                }
+            }
+            var observer = new MutationObserver(checkMainChart);
+            observer.observe(document.body, {childList: true, subtree: true});
+            // Plotly may finish without further DOM mutation after listener setup.
+            var poll = window.setInterval(function () {
+                if (finished) { window.clearInterval(poll); return; }
+                checkMainChart();
+            }, 150);
+            // A failure should not leave the interface permanently covered.
+            window.setTimeout(function () {
+                if (!finished) {
+                    var subtitle = overlay.querySelector('.initial-loading-subtitle');
+                    if (subtitle) subtitle.textContent = 'Still loading. Please check your connection if this persists.';
+                }
+            }, 20000);
+        })();
+        </script>
+    </body>
+</html>"""
+
 app.layout = html.Div([
     # =========================================================
     # Schedule Data Refresh
