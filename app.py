@@ -1515,6 +1515,8 @@ def _analytics(fragment=False):
 
 
 
+F2_LEAFLET_MAP_HTML = '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>F2 Marine Wave Overlay — Prototype</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>body{margin:0;font:14px system-ui,-apple-system,sans-serif;background:#101827;color:#edf2f7}.wrap{max-width:1300px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}h2{margin:0 0 5px;font-size:21px}.muted{color:#aab8cc}#map{height:min(76vh,760px);min-height:460px;border-radius:12px;overflow:hidden;margin-top:8px}.controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0}.controls button{background:#263c5a;color:white;border:1px solid #57708e;border-radius:6px;padding:8px 12px;cursor:pointer}input{accent-color:#52a4e6}#status{font-size:12px;padding:8px 0;color:#b9c8db}.tower-label{font-size:11px;font-weight:700;color:#102036;background:#fff;padding:2px 4px;border-radius:3px;box-shadow:0 1px 3px #0006;white-space:nowrap}.legend{background:white;color:#1b293b;padding:8px 10px;border-radius:5px;font:12px system-ui}.legend .bar{height:10px;width:175px;background:linear-gradient(90deg,#262f90,#2084c5,#32b88e,#ffe45e,#f28c39,#bd2d2d);margin:6px 0}.wave-key{background:#1b2b42;border:1px solid #48607e;border-radius:9px;padding:12px 14px;margin:12px 0 4px;max-width:620px}.wave-key-title{font-weight:700;margin-bottom:7px}.wave-key-bar{height:15px;border-radius:4px;background:linear-gradient(to right,#3b276d,#6c3f9a,#ae6595,#dd8b7d,#eeaa64,#f4d783,#f5f7a6)}.wave-key-ticks{display:flex;justify-content:space-between;font-size:12px;margin-top:5px}.wave-key-note{font-size:11px;color:#b9c8db;margin-top:7px;line-height:1.5}.note{line-height:1.6;font-size:12px;color:#aab8cc}\n.filter-row{margin-top:0}.filter-row .map-controls{max-width:none;box-shadow:none;background:transparent;border:0;padding:0;font-size:13px}.filter-row .map-controls input[type=range]{width:95px}\n/* Compact map-first interface. Controls are HTML overlays, not geographic layers. */\n#map{position:relative;height:min(82vh,800px);min-height:520px;margin-top:14px}\n.map-bottom{position:absolute;z-index:900;left:12px;right:12px;bottom:22px;display:flex;flex-direction:column;gap:8px;align-items:flex-start;pointer-events:none}\n.map-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:rgba(16,24,39,.93);color:#edf2f7;border:1px solid #56708c;border-radius:9px;padding:9px 11px;box-shadow:0 3px 14px #0006;pointer-events:auto;max-width:calc(100% - 22px);font-size:12px}\n.map-controls label{display:flex;align-items:center;gap:5px;white-space:nowrap}\n.map-controls input[type=range]{width:80px}\n.map-controls button{background:#263c5a;color:white;border:1px solid #57708e;border-radius:6px;padding:6px 9px;cursor:pointer}\n.map-bottom .wave-key{margin:0;width:min(420px,calc(100% - 22px));max-width:420px;box-sizing:border-box;background:rgba(16,24,39,.94);color:#edf2f7;border:1px solid #56708c;padding:10px 13px;pointer-events:auto}\n.wave-key-title{font-size:12px}.key-hint{font-size:10px;font-weight:400;color:#b9c8db}\n.wave-key-bar{height:14px;margin-top:6px;border-radius:4px;background:linear-gradient(90deg,#0638ff 0%,#0286b7 20%,#44a75d 40%,#c4cf52 58%,#ffbd36 77%,#ff3900 100%)}.wave-key-ticks{font-size:11px;margin-top:5px}.wave-key-title{font-weight:700}\n#status{margin-top:5px}\n@media(max-width:650px){.map-bottom{bottom:18px;left:7px;right:7px}.map-controls{gap:5px 8px;padding:7px;font-size:11px}.map-controls input[type=range]{width:65px}#map{min-height:570px}}\n/* Dashboard iframe: prevent nested scrollbars. */\nhtml,body{height:100%;overflow:hidden}\n.wrap{box-sizing:border-box;height:100vh;max-width:none;padding:12px 16px;display:flex;flex-direction:column;min-height:0}\n.filter-row{flex:0 0 auto}\n#map{flex:1 1 auto;height:auto!important;min-height:0!important;margin-top:10px}\n#status{flex:0 0 auto;padding:4px 0;margin:0}\n@media(max-width:650px){#map{min-height:0!important}}\n</style></head><body><div class="wrap"><div class="filter-row"><div class="map-controls"><label><input id="waves" type="checkbox" checked> Waves</label><label>Opacity <input id="opacity" type="range" min="0" max="100" value="68"> <span id="opacityLabel">68%</span></label><label><input id="smooth" type="checkbox" checked> Smooth</label><label>Blur <input id="blur" type="range" min="0" max="24" value="12"> <span id="blurLabel">12px</span></label><label><input id="labels" type="checkbox" checked> Tower IDs</label><button id="fit">Fit towers</button></div></div><div id="map"><div class="map-bottom"><section class="wave-key" aria-label="Wave height color scale"><div class="wave-key-title">Hs (m)</div><div class="wave-key-bar" aria-hidden="true"></div><div class="wave-key-ticks"><span>0.5</span><span>1.5</span><span>2.5</span><span>3.5</span><span>4.5</span><span>5.5</span><span>6.5</span></div><div class="wave-key-note">Approximate color guide · refer to Copernicus for exact values</div></section></div></div><div id="status">Initializing map…</div></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>\nconst towers = [{"id": "D01", "lat": 24.66391667000001, "lon": 120.7168333}, {"id": "D02", "lat": 24.65530555999999, "lon": 120.7318056}, {"id": "D03", "lat": 24.64747221999998, "lon": 120.7228333}, {"id": "D04", "lat": 24.64522221999999, "lon": 120.7052222}, {"id": "D05", "lat": 24.63769444, "lon": 120.7075278}, {"id": "D06", "lat": 24.62544444000002, "lon": 120.6911944}, {"id": "D07", "lat": 24.67158333000002, "lon": 120.7114167}, {"id": "D08", "lat": 24.65661111000002, "lon": 120.7069722}, {"id": "D09", "lat": 24.65463888999999, "lon": 120.6974167}, {"id": "D10", "lat": 24.64388889000002, "lon": 120.6948889}, {"id": "D11", "lat": 24.63536110999998, "lon": 120.6955278}, {"id": "D12", "lat": 24.63119443999999, "lon": 120.6858056}, {"id": "C01", "lat": 24.69377778000002, "lon": 120.7689167}, {"id": "C02", "lat": 24.70077778000003, "lon": 120.7594167}, {"id": "C03", "lat": 24.71761111000002, "lon": 120.7624722}, {"id": "C04", "lat": 24.71572222000001, "lon": 120.7511667}, {"id": "C05", "lat": 24.70413888999999, "lon": 120.7493333}, {"id": "C06", "lat": 24.70663889000001, "lon": 120.7420278}, {"id": "C07", "lat": 24.68630555999999, "lon": 120.7566389}, {"id": "C08", "lat": 24.67605556000003, "lon": 120.7424722}, {"id": "C09", "lat": 24.68166666999998, "lon": 120.7372778}, {"id": "C10", "lat": 24.69175000000003, "lon": 120.7472778}, {"id": "C11", "lat": 24.69522221999999, "lon": 120.7392222}, {"id": "B01", "lat": 24.70952777999999, "lon": 120.7708611}, {"id": "B02", "lat": 24.72827777999997, "lon": 120.7743056}, {"id": "B03", "lat": 24.75319444000003, "lon": 120.7887778}, {"id": "B04", "lat": 24.76647222, "lon": 120.7979722}, {"id": "B05", "lat": 24.77286111, "lon": 120.81475}, {"id": "B06", "lat": 24.77777778000002, "lon": 120.8079722}, {"id": "B07", "lat": 24.72738889, "lon": 120.7591111}, {"id": "B08", "lat": 24.73808333000001, "lon": 120.7606944}, {"id": "B09", "lat": 24.74394443999999, "lon": 120.7711944}, {"id": "B10", "lat": 24.76277778, "lon": 120.7811667}, {"id": "B11", "lat": 24.77411110999999, "lon": 120.7920278}, {"id": "B12", "lat": 24.78300000000001, "lon": 120.8006667}, {"id": "A01", "lat": 24.70427778000001, "lon": 120.7805}, {"id": "A02", "lat": 24.72011111, "lon": 120.7934167}, {"id": "A03", "lat": 24.72658333000002, "lon": 120.8059444}, {"id": "A04", "lat": 24.73397221999999, "lon": 120.7993056}, {"id": "A05", "lat": 24.74666667000001, "lon": 120.8159722}, {"id": "A06", "lat": 24.75655556, "lon": 120.8277778}, {"id": "A07", "lat": 24.71897222000001, "lon": 120.7725278}, {"id": "A08", "lat": 24.72305556000002, "lon": 120.7840556}, {"id": "A09", "lat": 24.73747222000001, "lon": 120.7859722}, {"id": "A10", "lat": 24.74416666999999, "lon": 120.79475}, {"id": "A11", "lat": 24.75399999999998, "lon": 120.8025}, {"id": "A12", "lat": 24.75513889, "lon": 120.8121944}];\nL.DomEvent.disableClickPropagation(document.querySelector(\'.map-bottom\'));L.DomEvent.disableScrollPropagation(document.querySelector(\'.map-bottom\'));\nconst map=L.map(\'map\',{preferCanvas:true}).setView([24.70843,120.75996],11);\nL.tileLayer(\'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png\',{maxZoom:19,attribution:\'© OpenStreetMap contributors\'}).addTo(map);\nconst group=L.featureGroup();const labels=[];\nfor(const t of towers){const marker=L.circleMarker([t.lat,t.lon],{radius:5,color:\'#142a4d\',weight:1.5,fillColor:\'#ffca36\',fillOpacity:1}).bindPopup(\'<b>\'+t.id+\'</b><br>Latitude: \'+t.lat.toFixed(8)+\'<br>Longitude: \'+t.lon.toFixed(8));marker.addTo(group);const label=L.marker([t.lat,t.lon],{icon:L.divIcon({className:\'\',html:\'<span class="tower-label">\'+t.id+\'</span>\',iconSize:[45,18],iconAnchor:[-8,9]}),interactive:false}).addTo(group);labels.push(label)}\ngroup.addTo(map);map.fitBounds(group.getBounds().pad(.12));\n// Copernicus Marine global wave forecast: dynamic WMTS tiles in Web Mercator.\n// Dataset IDs and supported matrix sets can change; validate against GetCapabilities.\nconst layerId=\'GLOBAL_ANALYSISFORECAST_WAV_001_027/cmems_mod_glo_wav_anfc_0.083deg_PT3H-i_202411/VHM0\';\nconst tileUrl=\'https://wmts.marine.copernicus.eu/teroWmts/?service=WMTS&version=1.0.0&request=GetTile&format=image%2Fpng&layer=\'+encodeURIComponent(layerId)+\'&tilematrixset=EPSG:3857&tilematrix={z}&tilecol={x}&tilerow={y}&STYLE=cmap:rainbow,range=0/5\';\nmap.createPane(\'wavePane\');map.getPane(\'wavePane\').style.zIndex=\'350\';map.getPane(\'wavePane\').style.pointerEvents=\'none\';\nconst waves=L.tileLayer(tileUrl,{pane:\'wavePane\',opacity:.68,maxNativeZoom:10,maxZoom:19,tileSize:256,attribution:\'Copernicus Marine Service\',errorTileUrl:\'\'});\nlet good=0,bad=0;const status=document.getElementById(\'status\');\nfunction updateStatus(){status.textContent=\'KML: \'+towers.length+\' turbines loaded · Copernicus tiles: \'+good+\' loaded, \'+bad+\' failed\'+(bad&&!good?\' · Check WMTS layer ID, availability, or browser network\':\'\');}\nwaves.on(\'tileload\',()=>{good++;updateStatus()});waves.on(\'tileerror\',()=>{bad++;updateStatus()});\nwaves.addTo(map);group.bringToFront();updateStatus();\nfunction updateSmoothing(){const active=document.getElementById(\'smooth\').checked;const px=Number(document.getElementById(\'blur\').value);map.getPane(\'wavePane\').style.filter=active?\'blur(\'+px+\'px)\':\'none\';document.getElementById(\'blurLabel\').textContent=px+\'px\';}\ndocument.getElementById(\'smooth\').onchange=updateSmoothing;document.getElementById(\'blur\').oninput=updateSmoothing;updateSmoothing();\ndocument.getElementById(\'waves\').onchange=e=>{if(e.target.checked){waves.addTo(map);group.bringToFront()}else map.removeLayer(waves)};\ndocument.getElementById(\'opacity\').oninput=e=>{waves.setOpacity(Number(e.target.value)/100);document.getElementById(\'opacityLabel\').textContent=e.target.value+\'%\'};\ndocument.getElementById(\'labels\').onchange=e=>{labels.forEach(l=>e.target.checked?group.addLayer(l):group.removeLayer(l))};\ndocument.getElementById(\'fit\').onclick=()=>map.fitBounds(group.getBounds().pad(.18));\n\n</script></body></html>'
+
 #%%Color map
 color_map = {
     "Inspection": "#1f77b4",         #藍
@@ -1874,6 +1876,10 @@ def analytics_data():
     response.headers["Cache-Control"] = "no-store"
     return response
 
+@server.route("/f2-marine-wave-map")
+def f2_marine_wave_map():
+    return Response(F2_LEAFLET_MAP_HTML, mimetype="text/html")
+
 app = Dash(__name__, server=server)
 
 app.layout = html.Div([
@@ -1954,6 +1960,27 @@ app.layout = html.Div([
         interval=5 * 60 * 1000,
         n_intervals=0
     ),
+    # Compact navigation: keep all pages mounted for existing callbacks.
+    dcc.Tabs(
+        id="main-navigation", value="overview",
+        children=[
+            dcc.Tab(label=label, value=value,
+                    style={"padding": "7px 17px", "fontSize": "13px",
+                           "fontWeight": "500", "backgroundColor": "#203249",
+                           "color": "#b9cce5", "border": "1px solid #344b65",
+                           "borderBottom": "2px solid transparent"},
+                    selected_style={"padding": "7px 17px", "fontSize": "13px",
+                                    "fontWeight": "600", "backgroundColor": "#29435f",
+                                    "color": "#ffffff", "border": "1px solid #426b94",
+                                    "borderBottom": "2px solid #69b8ff"})
+            for label, value in [("Overview", "overview"),
+                                 ("Schedule", "schedule"),
+                                 ("Weather", "weather"),
+                                 ("Resources", "resources")]
+        ],
+        className="ocean-navigation",
+        style={"marginBottom": "10px", "width": "fit-content", "maxWidth": "100%"}
+    ),
     # =========================================================
     # SUMMARY TABLE + KPI (控制面板區)
     # =========================================================
@@ -1986,12 +2013,13 @@ app.layout = html.Div([
         id="upcoming-container",
         children=build_upcoming_tasks(days=7)
         )
-    ], className="ocean-summary", style={
+    ], id="overview-page", className="ocean-summary", style={
         "backgroundColor": "#101D2D",
         "padding": "10px",
         "borderRadius": "8px",
         "marginBottom": "10px"
     }),
+    html.Div([
     # =========================================================
     # TOOLBAR (工程 Filter 列)
     # =========================================================
@@ -2067,22 +2095,6 @@ app.layout = html.Div([
         html.Div(
             id="detail-panel",
             children=[
-                html.H4("Project Resources",
-                style={
-                        "margin":"0px",
-                        "padding":"0px"
-                    }
-                ),
-                html.A(
-                    "Photo Archive",
-                    href="https://iovtec.sharepoint.com/sites/IOGWindProject/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FIOGWindProject%2FShared%20Documents%2F01%5FOperations%2F04%5FOngoing%20Projects%2F4372%5F%20Manpower%20for%20BeeX%2F2%2E%20Project%20Documentation%2F%E4%BD%9C%E6%A5%AD%E7%85%A7%E7%89%87&p=true&ct=1782188226845&or=Teams%2DHL&ga=1&LOF=1",
-                    target="_blank",
-                    style={
-                        "display":"block",
-                        "marginTop":"0px"
-                    }
-                ),
-                html.Hr(style={"margin":"5px 0"}),
                 html.H4("Jump to Date",
                 style={
                         "margin":"0px",
@@ -2104,8 +2116,99 @@ app.layout = html.Div([
             ],
             className="ocean-detail-panel"
         )
-    ], className="ocean-gantt-layout")
+    ], className="ocean-gantt-layout"),
+    ], id="schedule-page"),
+    # Weather source selector: exactly one map is visible at a time.
+    html.Div([
+        html.Div([
+            html.Span("Map source", style={"fontWeight": "600"}),
+            dcc.Dropdown(
+                id="weather-map-source",
+                options=[
+                    {"label": "Windy", "value": "windy"},
+                    {"label": "Copernicus Marine WMTS", "value": "copernicus"},
+                ],
+                value="windy",
+                clearable=False,
+                searchable=False,
+                style={"width": "270px", "color": "#182333"},
+            ),
+        ], style={"display": "flex", "alignItems": "center",
+                  "gap": "12px", "marginBottom": "14px", "flexWrap": "wrap"}),
+        html.Div([
+            html.Div([
+                html.H3("Windy Interactive Map", style={"margin": "0"}),
+                html.A("Open in Windy ↗",
+                       href="https://www.windy.com/upload/69e9dfa66061bb27a7ae71cc",
+                       target="_blank", rel="noopener noreferrer",
+                       style={"color": "#9ed2ff", "fontSize": "14px", "textDecoration": "none"}),
+            ], style={"display": "flex", "alignItems": "center", "gap": "16px",
+                      "flexWrap": "wrap", "marginBottom": "12px"}),
+            html.Iframe(
+                src="https://embed.windy.com/embed2.html?lat=24.70843&lon=120.75996&detailLat=24.70843&detailLon=120.75996&width=900&height=600&zoom=9&level=surface&overlay=waves&product=ecmwf&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=m%2Fs&metricTemp=%C2%B0C&radarRange=-1",
+                style={"width": "100%", "height": "min(75vh, 700px)", "minHeight": "480px",
+                       "border": "0", "borderRadius": "8px"},
+                title="Windy F2 Wind Farm Weather Map",
+            ),
+        ], id="weather-windy-view"),
+        html.Div([
+            html.H3("Copernicus Marine WMTS", style={"margin": "0 0 12px"}),
+            html.Iframe(
+                src="/f2-marine-wave-map",
+                style={"width": "100%", "height": "min(85vh, 820px)", "minHeight": "560px",
+                       "border": "0", "borderRadius": "8px"},
+                title="Copernicus Marine F2 Wave Map",
+            ),
+        ], id="weather-copernicus-view", style={"display": "none"}),
+    ], id="weather-page", style={"display": "none", "padding": "16px",
+        "backgroundColor": "#203249", "borderRadius": "8px"}),
+    # Dedicated Resources page: SharePoint shortcuts.
+    html.Div([
+        html.H3("Project Resources", style={"marginTop": "0", "marginBottom": "12px"}),
+        html.A('Photo Archive', href='https://iovtec.sharepoint.com/sites/IOGWindProject/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FIOGWindProject%2FShared%20Documents%2F01%5FOperations%2F04%5FOngoing%20Projects%2F4372%5F%20Manpower%20for%20BeeX%2F2%2E%20Project%20Documentation%2F%E4%BD%9C%E6%A5%AD%E7%85%A7%E7%89%87&p=true&ct=1782188226845&or=Teams%2DHL&ga=1&LOF=1', target="_blank",
+               rel="noopener noreferrer",
+               style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
+        html.A('Duty Roster', href='https://iovtec.sharepoint.com/sites/SV-SurveyDept2/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FSV%2DSurveyDept2%2FShared%20Documents%2F%E6%8E%A2%E6%B8%AC%E9%83%A8%2D%E7%8F%BE%E5%A0%B4%E7%87%9F%E9%81%8B%E7%B5%84%2F%E7%8F%AD%E8%A1%A8&p=true&ga=1', target="_blank",
+               rel="noopener noreferrer",
+               style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
+        html.A('Survey Log', href='https://iovtec.sharepoint.com/sites/SV-SurveyDept2/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FSV%2DSurveyDept2%2FShared%20Documents%2F%E6%8E%A2%E6%B8%AC%E9%83%A8%2D%E7%8F%BE%E5%A0%B4%E7%87%9F%E9%81%8B%E7%B5%84%2FSurvey%20Log&viewid=a9aaccb6%2Dfaa4%2D446d%2Db6e3%2Dbeafdbfc933e', target="_blank",
+               rel="noopener noreferrer",
+               style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
+        html.A('DPR', href='https://iovtec-my.sharepoint.com/:f:/g/personal/ali_chang_iovtec_com_tw/IgDMHGM8MshVQqUP_kgzjh4LAfee-_a7WUBFEz2pLI2bgXE?e=E5T8b7', target="_blank",
+               rel="noopener noreferrer",
+               style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
+    ], id="resources-page", style={"display": "none", "padding": "16px",
+        "backgroundColor": "#203249", "borderRadius": "8px"})
 ], className="ocean-app")
+
+@app.callback(
+    Output("weather-windy-view", "style"),
+    Output("weather-copernicus-view", "style"),
+    Input("weather-map-source", "value"),
+)
+def switch_weather_map(source):
+    return ({"display": "none"}, {}) if source == "copernicus" else ({}, {"display": "none"})
+
+
+@app.callback(
+    Output("overview-page", "style"),
+    Output("schedule-page", "style"),
+    Output("weather-page", "style"),
+    Output("resources-page", "style"),
+    Input("main-navigation", "value")
+)
+def switch_main_page(page):
+    hidden = {"display": "none"}
+    overview = {"backgroundColor": "#101D2D", "padding": "10px",
+                "borderRadius": "8px", "marginBottom": "10px"}
+    schedule = {}
+    weather = {"padding": "16px", "backgroundColor": "#203249", "borderRadius": "8px"}
+    resources = {"padding": "16px", "backgroundColor": "#203249",
+                 "borderRadius": "8px"}
+    return (overview if page == "overview" else hidden,
+            schedule if page == "schedule" else hidden,
+            weather if page == "weather" else hidden,
+            resources if page == "resources" else hidden)
 
 # Cached chart inputs: project/filter changes should not repeat preprocessing or SQL reads.
 @lru_cache(maxsize=4)
