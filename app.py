@@ -1955,9 +1955,9 @@ app.index_string = """<!DOCTYPE html>
                 <div class="initial-loading-title">Loading Dashboard...</div>
                 <div class="initial-loading-subtitle">Preparing F2 Offshore Dashboard</div>
                 <div class="initial-loading-status"><span id="initial-loading-stage">Initializing dashboard...</span>
-                    <span id="initial-loading-count">0 / 4</span></div>
+                    <span id="initial-loading-count">0 / 5</span></div>
                 <div class="initial-loading-track" role="progressbar" aria-label="Dashboard initialization"
-                     aria-valuemin="0" aria-valuemax="4" aria-valuenow="0">
+                     aria-valuemin="0" aria-valuemax="5" aria-valuenow="0">
                     <div class="initial-loading-fill" id="initial-loading-fill"></div>
                     <div class="initial-loading-tux" id="initial-loading-tux" aria-label="Linux Tux penguin">
                         <!-- Walking Tux frames from the user-provided sprite sheet. -->
@@ -1985,20 +1985,21 @@ app.index_string = """<!DOCTYPE html>
             var track = overlay.querySelector('.initial-loading-track');
             var descriptions = [
                 'Initializing dashboard...',
-                'Dashboard shell loaded',
-                'Preparing Gantt Chart...',
-                'Rendering Gantt Chart...',
+                'Dashboard interface ready',
+                'Schedule data ready',
+                'Summary and KPI cards ready',
+                'Overall progress verified',
                 'Dashboard Ready!'
             ];
             function advance(next) {
                 if (next <= stage || finished) return;
                 stage = next;
-                fill.style.width = (stage * 25) + '%';
-                tux.style.left = (stage * 25) + '%';
+                fill.style.width = (stage * 20) + '%';
+                tux.style.left = (stage * 20) + '%';
                 label.textContent = descriptions[stage];
-                count.textContent = stage + ' / 4';
+                count.textContent = stage + ' / 5';
                 track.setAttribute('aria-valuenow', String(stage));
-                if (stage === 4) tux.classList.add('still');
+                if (stage === 5) tux.classList.add('still');
             }
             function finish() {
                 if (finished) return;
@@ -2007,35 +2008,86 @@ app.index_string = """<!DOCTYPE html>
                 window.setTimeout(function () { overlay.remove(); }, 350);
                 observer.disconnect();
                 window.clearInterval(poll);
+                window.clearTimeout(watchdog);
             }
-            function checkMainChart() {
+            function textOf(id) {
+                var element = document.getElementById(id);
+                return element ? (element.textContent || '').trim() : '';
+            }
+            function hasResolvedValue(id, placeholder) {
+                var value = textOf(id);
+                return value.length > 0 && value !== placeholder;
+            }
+            function checkDashboard() {
                 if (finished || pendingFinish) return;
-                if (document.querySelector('#_dash-app-content, #react-entry-point')) advance(1);
+                // Each milestone is a prerequisite for the next. No timer-based progress.
+                if (!document.getElementById('overview-page') ||
+                    !document.getElementById('schedule-page')) return;
+                advance(1);
+
+                // The version store is populated only after the Neon timestamp callback.
+                // Dash's dcc.Store data is React-managed, not a DOM attribute.
+                // Use dependent callback outputs below as observable proof of data readiness.
+                if (textOf('initial-schedule-check') !== 'ready') return;
+                advance(2);
+
+                var summary = document.querySelector('#overview-page .ocean-company-table');
+                var cards = document.querySelectorAll('#kpi-container .ocean-kpi-card');
+                if (!summary || !summary.querySelector('tr') || !cards.length) return;
+                var cardsReady = Array.from(cards).every(function (card) {
+                    var value = card.querySelector('h2');
+                    return value && (value.textContent || '').trim() !== '';
+                });
+                if (!cardsReady || !document.getElementById('upcoming-container') ||
+                    textOf('initial-kpi-check') !== 'ready') return;
+                advance(3);
+
+                // These start with em-dash placeholders and are filled by a separate callback.
+                if (textOf('initial-progress-check') !== 'ready' ||
+                    !hasResolvedValue('overall-progress-percent', '—') ||
+                    !hasResolvedValue('overall-progress-count', '— / — Jackets') ||
+                    !hasResolvedValue('project-completed-jackets', ' | Completed Jackets: —')) return;
+                advance(4);
+
                 var container = document.getElementById('gantt-chart');
-                if (container) advance(2);
                 var graph = container && container.querySelector('.js-plotly-plot');
-                if (graph) advance(3);
-                // Wait for the actual Plotly plot, then allow the browser to paint.
-                if (graph && graph._fullLayout && graph.querySelector('.main-svg, .gl-container')) {
-                    pendingFinish = true;
+                if (!graph || !graph._fullLayout || !graph._fullData ||
+                    !graph.querySelector('.main-svg, .gl-container')) return;
+                pendingFinish = true;
+                requestAnimationFrame(function () {
                     requestAnimationFrame(function () {
-                        requestAnimationFrame(function () {
-                            advance(4);
-                            window.setTimeout(finish, 450);
-                        });
+                        advance(5);
+                        window.setTimeout(finish, 450);
                     });
-                }
+                });
             }
-            var observer = new MutationObserver(checkMainChart);
-            observer.observe(document.body, {childList: true, subtree: true});
-            var poll = window.setInterval(checkMainChart, 150);
-            checkMainChart();
-            window.setTimeout(function () {
-                if (!finished && !pendingFinish) {
-                    var subtitle = overlay.querySelector('.initial-loading-subtitle');
-                    if (subtitle) subtitle.textContent = 'Still loading. Please check your connection if this persists.';
+            var observer = new MutationObserver(checkDashboard);
+            observer.observe(document.body, {childList: true, subtree: true, characterData: true});
+            var poll = window.setInterval(checkDashboard, 200);
+            checkDashboard();
+            // A failed callback must never be reported as 100% ready.
+            // Keep the last verified stage visible and offer a manual retry.
+            var watchdog = window.setTimeout(function () {
+                if (finished || pendingFinish) return;
+                tux.classList.add('still');
+                label.textContent = 'Initialization incomplete: ' + ([
+                    'Dashboard interface', 'Schedule data', 'KPI cards',
+                    'Overall progress', 'Gantt Chart'
+                ][Math.min(stage, 4)]);
+                var subtitle = overlay.querySelector('.initial-loading-subtitle');
+                if (subtitle) subtitle.textContent = 'A required component did not become ready. Check Render logs or retry.';
+                var footer = overlay.querySelector('.initial-loading-footer');
+                if (footer) {
+                    footer.textContent = '';
+                    var retry = document.createElement('button');
+                    retry.textContent = 'Retry loading';
+                    retry.style.cssText = 'margin-top:12px;padding:8px 16px;border:0;border-radius:6px;background:#287bb5;color:white;cursor:pointer';
+                    retry.onclick = function () { window.location.reload(); };
+                    footer.appendChild(retry);
                 }
-            }, 20000);
+                observer.disconnect();
+                window.clearInterval(poll);
+            }, 30000);
         })();
         </script>
     </body>
@@ -2047,6 +2099,9 @@ app.layout = html.Div([
     # =========================================================
     # Only change this store when Neon schedule data actually changes.
     dcc.Store(id="schedule-version-store"),
+    html.Div(id="initial-schedule-check", style={"display": "none"}),
+    html.Div(id="initial-kpi-check", style={"display": "none"}),
+    html.Div(id="initial-progress-check", style={"display": "none"}),
     dcc.Interval(
         id="schedule-refresh-interval",
         interval=60 * 1000,
@@ -3369,12 +3424,13 @@ def update_open_meteo_status(_):
 #%% KPI Auto Refresh
 @app.callback(
     Output("kpi-container", "children"),
+    Output("initial-kpi-check", "children"),
     Input("schedule-version-store", "data")
 )
 def update_kpi(schedule_version):
 
     if schedule_version is None:
-        return no_update
+        return no_update, no_update
     latest_df, _, _ = load_schedule_cached(schedule_version)
 
     latest_kpi = calculate_kpi(latest_df)
@@ -3382,7 +3438,7 @@ def update_kpi(schedule_version):
     return [
         build_card(title, value)
         for title, value in latest_kpi.items()
-    ]
+    ], "ready"
 #%% Upcoming Tasks Auto Refresh
 @app.callback(
     Output("upcoming-container", "children"),
@@ -3547,52 +3603,54 @@ def cached_completion_counts(schedule_version):
     Output("overall-progress-percent", "children"),
     Output("overall-progress-count", "children"),
     Output("project-completed-jackets", "children"),
+    Output("initial-progress-check", "children"),
     Input("schedule-version-store", "data")
 )
 def update_overall_progress(schedule_version):
     if schedule_version is None:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
     completed, total, project_completed = cached_completion_counts(schedule_version)
     percentage = (100 * completed / total) if total else 0
-    return f"{percentage:.1f}%", f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}"
+    return f"{percentage:.1f}%", f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}", "ready"
 
 #%% Schedule Updated Time Auto Refresh
 @app.callback(
     Output("schedule-update-status", "children"),
+    Output("initial-schedule-check", "children"),
     Input("schedule-version-store", "data")
 )
 def update_schedule_status(schedule_version):
 
     if schedule_version is None:
-        return no_update
+        return no_update, no_update
     _, _, latest_updated = load_schedule_cached(schedule_version)
 
     return (
         "Engineering Scheduling & Progress Tracking System | "
         "v1.5.1 Beta | "
         f"Schedule Data Updated: {latest_updated}"
-    )
+    ), "ready"
 # End of module initialization (one measurement per Python worker).
 _STARTUP_READY_SECONDS = time.perf_counter() - _STARTUP_BEGIN
 print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=True)
 
 #%%Run server
 #render佈署
-# if __name__ == "__main__":
-#     app.run(
-#         debug=False,
-#         host="0.0.0.0",
-#         port=8050
-#     )
-
-#本機測試
-server = app.server
 if __name__ == "__main__":
     app.run(
-        debug=True,
-        host="127.0.0.1",
+        debug=False,
+        host="0.0.0.0",
         port=8050
-    )    
+    )
+
+#本機測試
+# server = app.server
+# if __name__ == "__main__":
+#     app.run(
+#         debug=True,
+#         host="127.0.0.1",
+#         port=8050
+#     )    
     
     
 #http://127.0.0.1:8050/
