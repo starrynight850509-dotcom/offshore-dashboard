@@ -1398,6 +1398,7 @@ category_order = [
     "Day off",
 ]
 cat_list = category_order
+PROJECT_CODES = {2025: "S2507BEX50", 2026: "S2603BEX50"}
 #%%Summary Table
 projects = [
     {"name":"BeeX",
@@ -1455,7 +1456,11 @@ def build_summary_table():
 #%%KPI Dashboard
 def calculate_kpi(source_df):
     today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
-    kpi_df = source_df[source_df["Date"].dt.normalize() <= today].copy()
+    # KPI is independent of the selected historical year.
+    beex_start = pd.Timestamp(projects[0]["start"])
+    kpi_df = source_df.loc[
+        source_df["Date"].dt.normalize().between(beex_start, today)
+    ].copy()
     
     inspection_days = (
         kpi_df.loc[
@@ -1658,7 +1663,7 @@ app.layout = html.Div([
     # =========================================================
     html.Div([
         html.H2(
-            "🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
+            "🌊F2 Offshore Wind Farm Underwater Inspection",
             className="ocean-title",
             style={"marginBottom": "5px"}
         ),
@@ -1743,6 +1748,18 @@ app.layout = html.Div([
     # =========================================================
     html.Div([
         html.Div([
+            html.Label("Project", style={"fontWeight": "bold"}),
+            dcc.Dropdown(
+                id="project-filter",
+                options=[{"label": "All Projects", "value": "all"}] + [
+                    {"label": f"{year} | {PROJECT_CODES.get(year, str(year))}", "value": str(year)}
+                    for year in sorted(df["Date"].dt.year.dropna().astype(int).unique(), reverse=True)
+                ],
+                value="all",
+                clearable=False
+            )
+        ], style={"width": "24%", "display": "inline-block", "verticalAlign": "top"}),
+        html.Div([
             html.Label("Personnel Filter", style={"fontWeight": "bold"}),
             dcc.Dropdown(
                 id="personnel-filter",
@@ -1751,7 +1768,7 @@ app.layout = html.Div([
                 multi=True,
                 placeholder="All Personnel"
             )
-        ], style={"width": "32%", "display": "inline-block", "verticalAlign": "top"}),
+        ], style={"width": "24%", "display": "inline-block", "verticalAlign": "top"}),
         html.Div([
             html.Label("Task Filter", style={"fontWeight": "bold"}),
             dcc.Dropdown(
@@ -1760,7 +1777,7 @@ app.layout = html.Div([
                 multi=True,
                 id="task-filter"
             )
-        ], style={"width": "32%", "display": "inline-block", "verticalAlign": "top"}),
+        ], style={"width": "24%", "display": "inline-block", "verticalAlign": "top"}),
         html.Div([
             html.Label("Category Filter", style={"fontWeight": "bold"}),
             dcc.Dropdown(
@@ -1769,7 +1786,7 @@ app.layout = html.Div([
                 multi=True,
                 id="cat-filter"
             )
-        ], style={"width": "32%", "display": "inline-block", "verticalAlign": "top"}),
+        ], style={"width": "24%", "display": "inline-block", "verticalAlign": "top"}),
     ], className="ocean-toolbar", style={
         "marginBottom": "8px",
         "padding": "8px 12px",
@@ -1860,17 +1877,20 @@ def refresh_schedule_version(n_intervals, previous_version):
     Input("task-filter", "value"),
     Input("cat-filter", "value"),
     Input("personnel-filter", "value"),
+    Input("project-filter", "value"),
     Input("date-picker", "date"),
     Input("schedule-version-store", "data")
 )
 
-def update_chart(selected_tasks, selected_cats, selected_personnel, selected_date, schedule_version):
+def update_chart(selected_tasks, selected_cats, selected_personnel, selected_project, selected_date, schedule_version):
     # Figure redraws only on filter/date changes or a new Neon data version.
     if schedule_version is None:
         return no_update
     
     # Load schedule data only when version changes
     chart_df, _, _ = load_schedule_cached(schedule_version)
+    if selected_project not in (None, "all"):
+        chart_df = chart_df.loc[chart_df["Date"].dt.year == int(selected_project)].copy()
     # =========================================================
     # SAFE DEFAULTS
     # =========================================================
@@ -2309,7 +2329,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_dat
         ),
         height=chart_height,
         margin=dict(
-            l=130,
+            l=120,  # Reserve room for Non-Offshore and progress labels
             r=20,
             t=100,             # 上方空間增加
             b=5
@@ -2325,11 +2345,22 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_dat
             bordercolor="#b8c9da",
             font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#193451")
         ),
-        uirevision="keep"
+        uirevision=f"project-{selected_project}"
     )
     # =========================================================
     # SELECTED DATE ZOOM + HIGHLIGHT
     # =========================================================
+    # Automatically fit the visible project records to calendar-month boundaries.
+    # Apply after all filters; an explicitly selected date retains priority below.
+    if not selected_date and not filtered.empty:
+        date_starts = pd.to_datetime(filtered["Start"], errors="coerce")
+        date_ends = pd.to_datetime(filtered["End"], errors="coerce")
+        visible_start = date_starts.min()
+        visible_end = date_ends.max()
+        if pd.notna(visible_start) and pd.notna(visible_end):
+            month_start = visible_start.to_period("M").start_time
+            month_end = (visible_end.to_period("M") + 1).start_time
+            fig.update_xaxes(range=[month_start, month_end])
     if selected_date:
         center_date = pd.to_datetime(selected_date)
         # 自動 zoom 到選取日前後 3 天
@@ -2382,6 +2413,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_dat
         tickmode="array",
         tickvals=lane_order,
         ticktext=ticktext,
+        showticklabels=False,  # Custom left-aligned lane labels below
         title=None,
         tickfont=dict(family="Segoe UI, Arial, sans-serif", size=11, color="#193451"),
         showgrid=False,
@@ -2390,6 +2422,26 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_dat
         # Gantt 使用圖面下方約 76%
         domain=[0.00, 0.84]
     )
+
+    # Plotly's native Y-axis tick labels are right-aligned by design.
+    # Use annotations with a common left anchor instead; preserve the
+    # original colored progress percentages and lane order.
+    for lane, label in zip(lane_order, ticktext):
+        fig.add_annotation(
+            x=0,
+            xref="paper",
+            xshift=-73,  # Keep labels left-aligned; Non-Offshore ends ~10-12 px before plot
+            xanchor="left",
+            y=lane,
+            yref="y",
+            yanchor="middle",
+            text=label,
+            showarrow=False,
+            align="left",
+            font=dict(family="Segoe UI, Arial, sans-serif", size=11, color="#193451"),
+            bgcolor="rgba(0,0,0,0)",
+            borderpad=0,
+        )
 
     # ---------------------------------------------------------
     # Windy Wave Y-axis
@@ -2800,6 +2852,45 @@ def update_task_options(schedule_version, old_options, selected_tasks):
     options_result = no_update if old_options_values == new_options else new_options
     value_result = no_update if (selected_tasks == new_selection) else new_selection
     return options_result, value_result
+#%% Project and Personnel Filter Auto Refresh
+@app.callback(
+    Output("project-filter", "options"),
+    Output("project-filter", "value"),
+    Input("schedule-version-store", "data"),
+    State("project-filter", "value"),
+    State("project-filter", "options")
+)
+def update_project_options(schedule_version, selected_project, old_options):
+    if schedule_version is None:
+        return no_update, no_update
+    latest_df, _, _ = load_schedule_cached(schedule_version)
+    years = sorted(latest_df["Date"].dt.year.dropna().astype(int).unique(), reverse=True)
+    options = [{"label": "All Projects", "value": "all"}] + [
+        {"label": f"{year} | {PROJECT_CODES.get(year, str(year))}", "value": str(year)}
+        for year in years
+    ]
+    valid = {item["value"] for item in options}
+    new_value = selected_project if selected_project in valid else "all"
+    return (no_update if old_options == options else options,
+            no_update if selected_project == new_value else new_value)
+
+@app.callback(
+    Output("personnel-filter", "options"),
+    Output("personnel-filter", "value"),
+    Input("schedule-version-store", "data"),
+    State("personnel-filter", "value"),
+    State("personnel-filter", "options")
+)
+def update_personnel_options(schedule_version, selected_personnel, old_options):
+    if schedule_version is None:
+        return no_update, no_update
+    latest_df, _, _ = load_schedule_cached(schedule_version)
+    names = personnel_names(latest_df)
+    options = [{"label": name, "value": name} for name in names]
+    selected = [name for name in (selected_personnel or []) if name in names]
+    return (no_update if old_options == options else options,
+            no_update if selected == (selected_personnel or []) else selected)
+
 #%% Schedule Updated Time Auto Refresh
 @app.callback(
     Output("schedule-update-status", "children"),

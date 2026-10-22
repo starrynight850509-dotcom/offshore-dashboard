@@ -251,3 +251,45 @@ body {background:var(--ocean-bg);margin:0;}
     }
 
 }
+/* Project single-select: match the other light Dash dropdowns. */
+#project-filter {
+  --Dash-Text-Primary: #486078;
+  --Dash-Text-Secondary: #486078;
+  --Dash-Fill-Inverse-Strong: #486078;
+  color: #486078 !important;
+  background: #eef4fb !important;
+  border-radius: 4px;
+}
+#project-filter .dash-dropdown,
+#project-filter .dash-dropdown-trigger,
+#project-filter .dash-dropdown-grid-container,
+#project-filter .Select-control,
+#project-filter .select__control {
+  background: #eef4fb !important;
+  background-color: #eef4fb !important;
+  color: #486078 !important;
+}
+#project-filter .dash-dropdown-trigger span,
+#project-filter .dash-dropdown-value,
+#project-filter .dash-dropdown-placeholder,
+#project-filter .Select-value-label,
+#project-filter .Select-placeholder,
+#project-filter .select__single-value {
+  color: #486078 !important;
+  -webkit-text-fill-color: #486078 !important;
+  opacity: 1 !important;
+}
+
+
+/* v1.7.2 — Keep Project Resources aligned with dynamic Gantt height.
+   Plotly controls the row height; the detail panel stretches to match. */
+@media (min-width: 1051px) {
+  .ocean-gantt-layout { align-items: stretch !important; }
+  .ocean-detail-panel {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    align-self: stretch;
+    overflow-y: auto;
+  }
+}
