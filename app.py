@@ -266,7 +266,10 @@ def _init_wave_db():
     - 之後重新啟動 Dashboard 不會重建或刪除既有資料
     """
 
+    connect_started = time.perf_counter()
     with psycopg2.connect(DATABASE_URL) as c:
+        record_startup_step("Wave DB · Connect", time.perf_counter() - connect_started)
+        ddl_started = time.perf_counter()
         with c.cursor() as cur:
 
             cur.execute("""
@@ -290,6 +293,7 @@ def _init_wave_db():
             """)
 
         c.commit()
+        record_startup_step("Wave DB · DDL + commit", time.perf_counter() - ddl_started)
 
 
 # ------------------------------------------------------------
@@ -552,7 +556,10 @@ def load_latest_wave_forecast():
         ORDER BY valid_time
     """
 
+    connect_started = time.perf_counter()
     with engine.connect() as c:
+        record_startup_step("Wave forecast · Connect", time.perf_counter() - connect_started)
+        query_started = time.perf_counter()
         wave_df = pd.read_sql_query(
             query,
             c,
@@ -562,7 +569,9 @@ def load_latest_wave_forecast():
                 "lon": F2_LON
             }
         )
+        record_startup_step("Wave forecast · Query + fetch", time.perf_counter() - query_started)
 
+    conversion_started = time.perf_counter()
     if not wave_df.empty:
 
         # PostgreSQL 儲存 UTC，
@@ -583,6 +592,7 @@ def load_latest_wave_forecast():
             .dt.tz_convert("Asia/Taipei")
         )
 
+    record_startup_step("Wave forecast · DataFrame conversion", time.perf_counter() - conversion_started)
     return wave_df
 
 
@@ -953,46 +963,52 @@ def _startup_diagnostics_html():
     if total is None:
         total = time.perf_counter() - _STARTUP_BEGIN
 
-    # The schedule sub-stages are included within Load schedule; do not double-count.
-    details = [(name, value) for name, value in steps if name.startswith("Schedule · ")]
-    main = [(name, value) for name, value in steps if not name.startswith("Schedule · ")]
-    max_duration = max((value for _, value in main), default=1.0) or 1.0
-    colors = {
-        "Load schedule (Neon)": "#3b82f6",
-        "Initialize wave DB": "#f59e0b",
-        "Load wave forecast (Neon)": "#8b5cf6",
-        "Calculate KPI": "#10b981",
-    }
+    groups = [
+        ("Load schedule (Neon)", "Schedule · ", "#3b82f6"),
+        ("Load wave forecast (Neon)", "Wave forecast · ", "#8b5cf6"),
+        ("Initialize wave DB", "Wave DB · ", "#f59e0b"),
+    ]
     subcolors = ["#0ea5e9", "#6366f1", "#14b8a6", "#f97316", "#64748b"]
+    main_steps = {label: duration for label, duration in steps if " · " not in label}
 
-    def row(label, elapsed, color, scale, nested=False):
-        width = max(0.5, elapsed / scale * 100)
+    def row(label, elapsed, color, denominator, nested=False):
+        percent = elapsed / denominator * 100 if denominator > 0 else 0
+        width = min(100, max(0, percent))
         prefix = "↳ " if nested else ""
         return (
             f'<tr><td>{prefix}{escape(label)}</td>'
             f'<td class="duration">{elapsed:.3f} s</td>'
+            f'<td class="duration">{percent:.1f}%</td>'
             f'<td><div class="startup-track"><div class="startup-bar" '
             f'style="width:{width:.2f}%;background:{color}"></div></div></td></tr>'
         )
 
     rows = ""
-    for label, elapsed in main:
-        rows += row(label, elapsed, colors.get(label, "#64748b"), max_duration)
-        if label == "Load schedule (Neon)":
-            for index, (detail_label, detail_value) in enumerate(details):
-                rows += row(detail_label.replace("Schedule · ", ""), detail_value,
-                            subcolors[index % len(subcolors)], elapsed or 1.0, nested=True)
+    for main_label, detail_prefix, color in groups:
+        if main_label not in main_steps:
+            continue
+        duration = main_steps[main_label]
+        rows += row(main_label, duration, color, total)
+        details = [(label[len(detail_prefix):], value) for label, value in steps
+                   if label.startswith(detail_prefix)]
+        for index, (label, value) in enumerate(details):
+            rows += row(label, value, subcolors[index % len(subcolors)], duration, nested=True)
+
+    for label, elapsed in steps:
+        if " · " not in label and label not in [g[0] for g in groups]:
+            rows += row(label, elapsed, "#10b981", total)
     rows += (f'<tr class="startup-total"><td><strong>Python startup total</strong></td>'
-             f'<td class="duration"><strong>{total:.3f} s</strong></td><td></td></tr>')
+             f'<td class="duration"><strong>{total:.3f} s</strong></td>'
+             f'<td class="duration"><strong>100.0%</strong></td><td></td></tr>')
     return (
         '<section class="startup-diagnostics">'
         '<h3>Startup Diagnostics</h3>'
         '<p class="note">Current Python worker only · timings reset on restart. '
-        'Render wake-up/queue time before Python starts is not measured.</p>'
-        '<p class="note">Schedule sub-stages are included in Load schedule (not additional time). '
-        'Query + fetch includes database execution and result transfer.</p>'
+        'Render wake-up time before Python starts is not measured.</p>'
+        '<p class="note">Main stages: % of Python startup total. '
+        'Indented stages: % of their parent stage; not counted twice.</p>'
         '<div class="startup-table-wrap"><table class="startup-table">'
-        '<thead><tr><th>Startup stage</th><th>Duration</th><th>Relative duration</th></tr></thead>'
+        '<thead><tr><th>Startup stage</th><th>Duration</th><th>Share</th><th>Relative duration</th></tr></thead>'
         f'<tbody>{rows}</tbody></table></div></section>'
     )
 
@@ -1189,7 +1205,7 @@ def _analytics():
             min-width: 0;
         }}
 
-        .analytics-history h3 {{
+        .analytics-history h3, .analytics-summary h3 {{
             font-size: 18px;
             margin: 20px 0 5px;
         }}
@@ -1324,16 +1340,17 @@ def _analytics():
         }}
 
         /* Startup timings: compact, independent of Recent Sessions table filters */
-        .startup-diagnostics {{ margin-top: 22px; }}
+        .startup-diagnostics {{ margin-top: 0; }}
         .startup-diagnostics h3 {{ margin-bottom: 8px; }}
         .startup-table-wrap {{ width: 100%; overflow-x: auto; }}
         .startup-table {{ width: 100%; border-collapse: collapse; background: white; font-size: 12px; }}
         .startup-table th, .startup-table td {{ padding: 8px 7px; border-bottom: 1px solid #e5e7eb; text-align: left; }}
         .startup-table th {{ background: #f1f5f9; }}
         .startup-table .duration {{ text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }}
-        .startup-table th:nth-child(1) {{ width: 46%; }}
-        .startup-table th:nth-child(2) {{ width: 20%; text-align: right; }}
-        .startup-table th:nth-child(3) {{ width: 34%; }}
+        .startup-table th:nth-child(1) {{ width: 43%; }}
+        .startup-table th:nth-child(2) {{ width: 17%; text-align: right; }}
+        .startup-table th:nth-child(3) {{ width: 14%; text-align: right; }}
+        .startup-table th:nth-child(4) {{ width: 26%; }}
         .startup-track {{ background: #e2e8f0; height: 10px; border-radius: 5px; overflow: hidden; }}
         .startup-bar {{ height: 100%; border-radius: 5px; }}
         .startup-total {{ background: #f8fafc; }}
@@ -1350,24 +1367,22 @@ def _analytics():
 
     <div class="analytics-layout">
 
-        <!-- Left: Summary -->
+        <!-- Left: Summary + Recent Sessions -->
         <div class="analytics-summary">
             {cards}
-        </div>
-
-        <!-- Right: Recent Sessions -->
-        <div class="analytics-history">
 
             <h3>Recent Sessions</h3>
-
             <div class="table-container">
                 {recent}
             </div>
-
             <p class="note">
                 Showing all {len(session_rows)} sessions ·
                 Scroll to view older records
             </p>
+        </div>
+
+        <!-- Right: Startup Diagnostics -->
+        <div class="analytics-history">
 
             {_startup_diagnostics_html()}
 
