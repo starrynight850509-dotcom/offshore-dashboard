@@ -2033,8 +2033,11 @@ app.layout = html.Div([
         "marginBottom": "10px"
     }),
     html.Div([
-        # Windy forecast 最後更新時間
-        # 內容由 callback 自動更新
+        # Open-Meteo forecast status
+        html.Div(id="open-meteo-update-status", className="ocean-windy-status",
+            children="Open-Meteo Forecast | Checking... | Forecast Data – Reference Only",
+            style={"color":"#6b7280","fontSize":"12px","marginTop":"3px","lineHeight":"1.5"}),
+        # Windy forecast status
         html.Div(
             id="windy-update-status",
             className="ocean-windy-status",
@@ -2047,9 +2050,6 @@ app.layout = html.Div([
                 "lineHeight": "1.5"
             }
         ),
-        html.Div(id="open-meteo-update-status", className="ocean-windy-status",
-            children="Open-Meteo Forecast | Checking... | Forecast Data – Reference Only",
-            style={"color":"#6b7280","fontSize":"12px","marginTop":"3px","lineHeight":"1.5"}),
     # =========================================================
     # TOOLBAR (工程 Filter 列)
     # =========================================================
@@ -2565,7 +2565,8 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
     
                 # 不加入 Category legend，
                 # 避免跟 Inspection / WOW / Delay 混在一起
-                showlegend=False
+                showlegend=True,
+                legend="legend2"
             )
         )
     try:
@@ -2580,15 +2581,15 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
         fig.add_trace(go.Scatter(x=meteo["valid_time"],y=meteo["wave_height_m"],
             yaxis="y2",mode="lines+markers",name="Open-Meteo Forecast Hs",
             line=dict(color="#0d9488",width=0.5,dash="5px,2px"),marker=dict(color="#0d9488",size=4),
-            customdata=meta,showlegend=False,
+            customdata=meta,showlegend=True,legend="legend2",
             hovertemplate=("<b>Open-Meteo Wave Forecast</b><br>Time: %{x|%Y-%m-%d %H:%M}<br>"
                 "Forecast Hs: %{y:.2f} m<br>Period: %{customdata[0]:.1f} s<br>"
                 "Direction: %{customdata[1]:.0f}° %{customdata[2]}<extra></extra>")))
         # ---------------------------------------------------------
         # Wave Hs horizontal reference lines
-        # 0, 1, 2, 3, 4, 5 m
+        # 0–10 m (same thin black solid-line style)
         # ---------------------------------------------------------
-        for hs_level in [0, 1, 2, 3, 4, 5]:
+        for hs_level in range(0, 11):
             fig.add_shape(
                 type="line",
         
@@ -2762,6 +2763,15 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
             yanchor="top",
             font=dict(size=8)
         ),
+        legend2=dict(
+            orientation="h",
+            x=1, xanchor="right",
+            y=1.01, yanchor="bottom",
+            font=dict(size=10),
+            bgcolor="rgba(255,255,255,0.75)",
+            borderwidth=0,
+            itemsizing="constant"
+        ),
         height=chart_height,
         margin=dict(
             l=120,  # Reserve room for Non-Offshore and progress labels
@@ -2895,13 +2905,15 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
             # 與 Gantt 共用 X 軸
             anchor="x",
     
-            # 固定顯示 0–3 m
+            # 預設只顯示 0–5 m；允許向上查看，但不得拖到 0 m 以下
             range=[0, 5],
+            minallowed=0,
     
             # 固定刻度，閱讀比較直觀
             tickmode="array",
-            tickvals=[0, 1, 2, 3, 4, 5],
+            tickvals=list(range(0, 11)),  # 0–10 m，每 1 m 一條水平網格線
     
+            # Reference lines are drawn as 0.3 px black shapes above; avoid duplicate gray gridlines.
             showgrid=False,
             zeroline=False,
             tickfont=dict(size=10, color="#193451"),
@@ -3434,21 +3446,21 @@ print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=T
 
 #%%Run server
 #render佈署
-# if __name__ == "__main__":
-#     app.run(
-#         debug=False,
-#         host="0.0.0.0",
-#         port=8050
-#     )
-
-#本機測試
-server = app.server
 if __name__ == "__main__":
     app.run(
-        debug=True,
-        host="127.0.0.1",
+        debug=False,
+        host="0.0.0.0",
         port=8050
-    )    
+    )
+
+#本機測試
+# server = app.server
+# if __name__ == "__main__":
+#     app.run(
+#         debug=True,
+#         host="127.0.0.1",
+#         port=8050
+#     )    
     
     
 #http://127.0.0.1:8050/
