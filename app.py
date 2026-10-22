@@ -172,6 +172,16 @@ engine = create_engine(
     SQLALCHEMY_URL,
     pool_pre_ping=True
 )
+#%% F2 Wind Farm Tower Master (read-only)
+def load_tower_master():
+    """Return canonical F2 turbine IDs; schedule/progress remains independent."""
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT tower_id FROM tower_master ORDER BY tower_id")).fetchall()
+    towers = [str(row[0]).strip().upper() for row in rows]
+    if not towers:
+        raise RuntimeError("tower_master is empty")
+    return towers
+
 #%% Windy Point Forecast
 # ============================================================
 # Windy Point Forecast API
@@ -1662,6 +1672,7 @@ app.layout = html.Div([
     # HEADER (工程系統標題)
     # =========================================================
     html.Div([
+        html.Div([
         html.H2(
             "🌊F2 Offshore Wind Farm Underwater Inspection",
             className="ocean-title",
@@ -1698,8 +1709,22 @@ app.layout = html.Div([
             }
         )
     
+        ], style={"flex": "4", "minWidth": 0, "textAlign": "center"}),
+        html.Div([
+            html.Div("Overall Progress", style={"fontSize": "12px", "color": "#cbd5e1"}),
+            html.Div("—", id="overall-progress-percent", style={
+                "fontSize": "26px", "fontWeight": "700", "color": "white", "lineHeight": "1.25"
+            }),
+            html.Div("— / — Towers", id="overall-progress-count", style={
+                "fontSize": "12px", "color": "#cbd5e1"
+            })
+        ], style={
+            "flex": "1", "minWidth": "135px", "borderLeft": "1px solid #52647a",
+            "display": "flex", "flexDirection": "column", "alignItems": "center",
+            "justifyContent": "center", "textAlign": "center", "paddingLeft": "12px"
+        })
     ], className="ocean-header", style={
-        "textAlign": "center",
+        "display": "flex", "alignItems": "center", "gap": "12px",
         "marginBottom": "10px"
     }),
     # =========================================================
@@ -1955,6 +1980,12 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
             return (2, "", 0)
         return (1, str(lane), 0)
     lane_order = sorted(filtered["Lane"].dropna().unique().tolist(), key=lane_key)
+    # All Projects: show the complete F2 wind farm, including empty lanes.
+    # When personnel is selected, keep the personnel-only view.
+    # Year-specific views continue to show only towers with schedule records.
+    if selected_project in (None, "all") and not selected_personnel:
+        master_towers = load_tower_master()
+        lane_order = sorted(set(lane_order).union(master_towers), key=lane_key)
     filtered["_lane_sort"] = filtered["Lane"].map({lane: i for i, lane in enumerate(lane_order)})
     filtered = filtered.sort_values(["_lane_sort", "Start"], na_position="last")
     # lane_order = ["Project Events"] + lane_order
@@ -1996,7 +2027,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
         ]
     
         if lane_rows.empty:
-            ticktext.append(lane)
+            ticktext.append(f"{lane} <span style='color:#94a3b8;'><b>(0%)</b></span>")
             continue
 
         progress = lane_progress_map.get(lane, 0)
@@ -2034,7 +2065,8 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
         color="Category",
         color_discrete_map=color_map,
         category_orders={
-        "Category":category_order
+        "Category": category_order,
+        "Lane": lane_order
         },
         custom_data=hover_cols
     )
@@ -2410,6 +2442,8 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
     # ---------------------------------------------------------
     fig.update_yaxes(
         autorange="reversed",
+        categoryorder="array",
+        categoryarray=lane_order,
         tickmode="array",
         tickvals=lane_order,
         ticktext=ticktext,
@@ -2891,6 +2925,43 @@ def update_personnel_options(schedule_version, selected_personnel, old_options):
     return (no_update if old_options == options else options,
             no_update if selected == (selected_personnel or []) else selected)
 
+#%% Overall F2 tower completion (unaffected by display filters)
+def calculate_overall_tower_completion(source_df, master_towers):
+    """Count turbines that have ever reached 100% Progress in schedule history."""
+    tower_set = set(master_towers)
+    if not tower_set:
+        return 0, 0
+    rows = source_df.copy()
+    def tower_from_record(row):
+        if str(row.get("Lane", "")).strip() == "Non-Offshore":
+            return None
+        for candidate in (row.get("Task", ""), row.get("Lane", "")):
+            match = re.search(r"(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)", str(candidate), re.I)
+            if match:
+                code = re.sub(r"[^A-Za-z0-9]", "", match.group(1)).upper()
+                return f"{code[0]}{int(code[1:]):02d}"
+        return None
+    rows["_tower"] = rows.apply(tower_from_record, axis=1)
+    rows = rows.loc[rows["_tower"].isin(tower_set)].copy()
+    if rows.empty:
+        return 0, len(tower_set)
+    rows["_progress_numeric"] = pd.to_numeric(rows["Progress"], errors="coerce")
+    completed_towers = rows.loc[rows["_progress_numeric"].ge(100), "_tower"].nunique()
+    return int(completed_towers), len(tower_set)
+
+@app.callback(
+    Output("overall-progress-percent", "children"),
+    Output("overall-progress-count", "children"),
+    Input("schedule-version-store", "data")
+)
+def update_overall_progress(schedule_version):
+    if schedule_version is None:
+        return no_update, no_update
+    latest_df, _, _ = load_schedule_cached(schedule_version)
+    completed, total = calculate_overall_tower_completion(latest_df, load_tower_master())
+    percentage = (100 * completed / total) if total else 0
+    return f"{percentage:.1f}%", f"{completed} / {total} Towers"
+
 #%% Schedule Updated Time Auto Refresh
 @app.callback(
     Output("schedule-update-status", "children"),
@@ -2909,21 +2980,21 @@ def update_schedule_status(schedule_version):
     )
 #%%Run server
 #render佈署
-# if __name__ == "__main__":
-#     app.run(
-#         debug=False,
-#         host="0.0.0.0",
-#         port=8050
-#     )
-
-#本機測試
-server = app.server
 if __name__ == "__main__":
     app.run(
-        debug=True,
-        host="127.0.0.1",
+        debug=False,
+        host="0.0.0.0",
         port=8050
-    )    
+    )
+
+#本機測試
+# server = app.server
+# if __name__ == "__main__":
+#     app.run(
+#         debug=True,
+#         host="127.0.0.1",
+#         port=8050
+#     )    
     
     
 #http://127.0.0.1:8050/
