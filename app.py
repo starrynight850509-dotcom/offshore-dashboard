@@ -34,15 +34,20 @@ _STARTUP_BEGIN = time.perf_counter()
 _STARTUP_STEPS = []
 _STARTUP_LOCK = threading.Lock()
 
+_STARTUP_INSTRUMENT_SCHEDULE = False
+
+def record_startup_step(label, elapsed):
+    with _STARTUP_LOCK:
+        _STARTUP_STEPS.append((label, elapsed))
+    print(f"[STARTUP] {label}: {elapsed:.3f} s", flush=True)
+
 def measure_startup(label, operation):
     started = time.perf_counter()
     try:
         return operation()
     finally:
         elapsed = time.perf_counter() - started
-        with _STARTUP_LOCK:
-            _STARTUP_STEPS.append((label, elapsed))
-        print(f"[STARTUP] {label}: {elapsed:.3f} s", flush=True)
+        record_startup_step(label, elapsed)
 
 load_dotenv(".env")
 print("DATABASE_URL loaded:", bool(os.getenv("DATABASE_URL")))
@@ -59,6 +64,7 @@ def load_schedule_data():
     if not database_url:
         raise RuntimeError("DATABASE_URL is not configured")
 
+    engine_started = time.perf_counter()
     schedule_engine = create_engine(
         database_url.replace(
             "postgresql://",
@@ -68,14 +74,24 @@ def load_schedule_data():
         pool_pre_ping=True
     )
 
+    if _STARTUP_INSTRUMENT_SCHEDULE:
+        record_startup_step("Schedule · Engine setup", time.perf_counter() - engine_started)
+
     try:
+        connect_started = time.perf_counter()
         with schedule_engine.connect() as conn:
+            if _STARTUP_INSTRUMENT_SCHEDULE:
+                record_startup_step("Schedule · Connect", time.perf_counter() - connect_started)
+            query_started = time.perf_counter()
             rows = conn.execute(text("""
                 SELECT name, data, updated_at
                 FROM schedule_data
                 WHERE name IN ('progress', 'hourly')
             """)).fetchall()
+            if _STARTUP_INSTRUMENT_SCHEDULE:
+                record_startup_step("Schedule · Query + fetch", time.perf_counter() - query_started)
 
+        conversion_started = time.perf_counter()
         schedule = {
             name: {
                 "df": pd.DataFrame(data),
@@ -108,12 +124,18 @@ def load_schedule_data():
             .strftime("%Y-%m-%d %H:%M")
         )
 
+        if _STARTUP_INSTRUMENT_SCHEDULE:
+            record_startup_step("Schedule · DataFrame conversion", time.perf_counter() - conversion_started)
+
         print("Schedule data loaded from Neon")
 
         return progress_df, hourly_data, updated_text
 
     finally:
+        dispose_started = time.perf_counter()
         schedule_engine.dispose()
+        if _STARTUP_INSTRUMENT_SCHEDULE:
+            record_startup_step("Schedule · Dispose", time.perf_counter() - dispose_started)
 @lru_cache(maxsize=2)
 def load_schedule_cached(version):
     return load_schedule_data()
@@ -144,7 +166,11 @@ def get_schedule_updated_at():
     finally:
         engine.dispose()
 # Load schedule data
-df, hourly_df, data_updated = measure_startup("Load schedule (Neon)", load_schedule_data)
+_STARTUP_INSTRUMENT_SCHEDULE = True
+try:
+    df, hourly_df, data_updated = measure_startup("Load schedule (Neon)", load_schedule_data)
+finally:
+    _STARTUP_INSTRUMENT_SCHEDULE = False
 
 #%% Environment Variables
 # ============================================================
@@ -923,19 +949,51 @@ def _startup_diagnostics_html():
     from html import escape
     with _STARTUP_LOCK:
         steps = list(_STARTUP_STEPS)
-    total = time.perf_counter() - _STARTUP_BEGIN if not globals().get("_STARTUP_READY_SECONDS") else _STARTUP_READY_SECONDS
-    rows = "".join(
-        f"<tr><td>{escape(label)}</td><td>{elapsed:.3f} s</td></tr>"
-        for label, elapsed in steps
-    )
-    rows += f'<tr><td><strong>Python startup total</strong></td><td><strong>{total:.3f} s</strong></td></tr>'
+    total = globals().get("_STARTUP_READY_SECONDS")
+    if total is None:
+        total = time.perf_counter() - _STARTUP_BEGIN
+
+    # The schedule sub-stages are included within Load schedule; do not double-count.
+    details = [(name, value) for name, value in steps if name.startswith("Schedule · ")]
+    main = [(name, value) for name, value in steps if not name.startswith("Schedule · ")]
+    max_duration = max((value for _, value in main), default=1.0) or 1.0
+    colors = {
+        "Load schedule (Neon)": "#3b82f6",
+        "Initialize wave DB": "#f59e0b",
+        "Load wave forecast (Neon)": "#8b5cf6",
+        "Calculate KPI": "#10b981",
+    }
+    subcolors = ["#0ea5e9", "#6366f1", "#14b8a6", "#f97316", "#64748b"]
+
+    def row(label, elapsed, color, scale, nested=False):
+        width = max(0.5, elapsed / scale * 100)
+        prefix = "↳ " if nested else ""
+        return (
+            f'<tr><td>{prefix}{escape(label)}</td>'
+            f'<td class="duration">{elapsed:.3f} s</td>'
+            f'<td><div class="startup-track"><div class="startup-bar" '
+            f'style="width:{width:.2f}%;background:{color}"></div></div></td></tr>'
+        )
+
+    rows = ""
+    for label, elapsed in main:
+        rows += row(label, elapsed, colors.get(label, "#64748b"), max_duration)
+        if label == "Load schedule (Neon)":
+            for index, (detail_label, detail_value) in enumerate(details):
+                rows += row(detail_label.replace("Schedule · ", ""), detail_value,
+                            subcolors[index % len(subcolors)], elapsed or 1.0, nested=True)
+    rows += (f'<tr class="startup-total"><td><strong>Python startup total</strong></td>'
+             f'<td class="duration"><strong>{total:.3f} s</strong></td><td></td></tr>')
     return (
+        '<section class="startup-diagnostics">'
         '<h3>Startup Diagnostics</h3>'
         '<p class="note">Current Python worker only · timings reset on restart. '
         'Render wake-up/queue time before Python starts is not measured.</p>'
-        '<table class="analytics-table" style="background:white;table-layout:auto">'
-        '<thead><tr><th>Startup stage</th><th>Duration</th></tr></thead>'
-        f'<tbody>{rows}</tbody></table>'
+        '<p class="note">Schedule sub-stages are included in Load schedule (not additional time). '
+        'Query + fetch includes database execution and result transfer.</p>'
+        '<div class="startup-table-wrap"><table class="startup-table">'
+        '<thead><tr><th>Startup stage</th><th>Duration</th><th>Relative duration</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table></div></section>'
     )
 
 
@@ -1264,6 +1322,21 @@ def _analytics():
                 padding: 7px 4px;
             }}
         }}
+
+        /* Startup timings: compact, independent of Recent Sessions table filters */
+        .startup-diagnostics {{ margin-top: 22px; }}
+        .startup-diagnostics h3 {{ margin-bottom: 8px; }}
+        .startup-table-wrap {{ width: 100%; overflow-x: auto; }}
+        .startup-table {{ width: 100%; border-collapse: collapse; background: white; font-size: 12px; }}
+        .startup-table th, .startup-table td {{ padding: 8px 7px; border-bottom: 1px solid #e5e7eb; text-align: left; }}
+        .startup-table th {{ background: #f1f5f9; }}
+        .startup-table .duration {{ text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }}
+        .startup-table th:nth-child(1) {{ width: 46%; }}
+        .startup-table th:nth-child(2) {{ width: 20%; text-align: right; }}
+        .startup-table th:nth-child(3) {{ width: 34%; }}
+        .startup-track {{ background: #e2e8f0; height: 10px; border-radius: 5px; overflow: hidden; }}
+        .startup-bar {{ height: 100%; border-radius: 5px; }}
+        .startup-total {{ background: #f8fafc; }}
     </style>
 
     <h1>Site Analytics</h1>
@@ -1274,8 +1347,6 @@ def _analytics():
         Session = same IP activity grouped within
         {SESSION_MINUTES} minutes
     </p>
-
-    {_startup_diagnostics_html()}
 
     <div class="analytics-layout">
 
@@ -1297,6 +1368,8 @@ def _analytics():
                 Showing all {len(session_rows)} sessions ·
                 Scroll to view older records
             </p>
+
+            {_startup_diagnostics_html()}
 
         </div>
 
