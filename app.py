@@ -25,6 +25,7 @@ from dash import get_asset_url
 from sqlalchemy import create_engine
 from sqlalchemy import text
 from functools import lru_cache
+import time
 from dash import State, no_update
 from dotenv import load_dotenv
 load_dotenv(".env")
@@ -1715,7 +1716,7 @@ app.layout = html.Div([
             html.Div("—", id="overall-progress-percent", style={
                 "fontSize": "26px", "fontWeight": "700", "color": "white", "lineHeight": "1.25"
             }),
-            html.Div("— / — Towers", id="overall-progress-count", style={
+            html.Div("— / — Jackets", id="overall-progress-count", style={
                 "fontSize": "12px", "color": "#cbd5e1"
             })
         ], style={
@@ -1741,8 +1742,9 @@ app.layout = html.Div([
     html.Div([
         # 2026 project scope label (display only)
         html.Div([
-            html.Span("2026 Project Overview — S2603BEX50", style={"fontWeight": "600", "color": "#ffffff"})
-        ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "8px"}),
+            html.Span("2026 Project Overview — S2603BEX50", style={"fontWeight": "600", "color": "#ffffff"}),
+            html.Span(" | Completed Jackets: —", id="project-completed-jackets", style={"fontWeight": "600", "color": "#ffffff"})
+        ], style={"display": "flex", "justifyContent": "flex-start", "alignItems": "center", "marginBottom": "8px"}),
         # Summary Table
         build_summary_table(),
         # KPI Cards
@@ -1887,6 +1889,38 @@ app.layout = html.Div([
     ], className="ocean-gantt-layout")
 ], className="ocean-app")
 
+# Cached chart inputs: project/filter changes should not repeat preprocessing or SQL reads.
+@lru_cache(maxsize=4)
+def prepared_chart_data(schedule_version):
+    source, _, _ = load_schedule_cached(schedule_version)
+    prepared = source.copy()
+    if "Lane" in prepared.columns:
+        non_offshore = prepared["Lane"].astype(str).str.strip().eq("Non-Offshore")
+    else:
+        non_offshore = pd.Series(False, index=prepared.index)
+    task_codes = prepared["Task"].fillna("").astype(str).str.extract(
+        r"(?i)(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)", expand=False
+    )
+    lane_codes = prepared["Lane"].fillna("").astype(str).str.extract(
+        r"(?i)(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)", expand=False
+    )
+    codes = task_codes.fillna(lane_codes).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
+    formatted = codes.str.extract(r"^([ABCD])(\d{1,2})$", expand=True)
+    canonical = formatted[0] + formatted[1].str.zfill(2)
+    prepared["_chart_lane"] = prepared["Lane"].astype(str).where(canonical.isna(), canonical)
+    prepared.loc[non_offshore, "_chart_lane"] = "Non-Offshore"
+    return prepared
+
+@lru_cache(maxsize=1)
+def cached_master_towers():
+    return load_tower_master()
+
+@lru_cache(maxsize=3)
+def cached_chart_wave(time_bucket):
+    # Wave forecast is refreshed independently; 5-minute TTL prevents
+    # repeated PostgreSQL reads while rapidly switching project filters.
+    return load_latest_wave_forecast()
+
 #%%Callback (dynamic update)
 @app.callback(
     Output("schedule-version-store", "data"),
@@ -1917,7 +1951,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
         return no_update
     
     # Load schedule data only when version changes
-    chart_df, _, _ = load_schedule_cached(schedule_version)
+    chart_df = prepared_chart_data(schedule_version)
     if selected_project not in (None, "all"):
         chart_df = chart_df.loc[chart_df["Date"].dt.year == int(selected_project)].copy()
     # =========================================================
@@ -1962,20 +1996,9 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
             filtered = filtered.iloc[0:0].copy()
 
     # =========================================================
-    # ORDERING — tower lanes A, B, C, D; no Cluster grouping
+    # ORDERING — use cached vectorized lane parsing
     # =========================================================
-    import re
-    def tower_lane(row):
-        if str(row.get("Lane", "")).strip() == "Non-Offshore":
-            return "Non-Offshore"
-        for candidate in (row.get("Task", ""), row.get("Lane", "")):
-            match = re.search(r"(?<![A-Za-z0-9])([ABCD]\s*[-_]?\s*\d{1,2})(?!\d)", str(candidate), re.I)
-            if match:
-                code = re.sub(r"[^A-Za-z0-9]", "", match.group(1)).upper()
-                return f"{code[0]}{int(code[1:]):02d}"
-        return str(row.get("Lane", ""))
-
-    filtered["Lane"] = filtered.apply(tower_lane, axis=1)
+    filtered["Lane"] = filtered["_chart_lane"]
     def lane_key(lane):
         match = re.fullmatch(r"([ABCD])(\d+)", str(lane))
         if match:
@@ -1988,7 +2011,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
     # When personnel is selected, keep the personnel-only view.
     # Year-specific views continue to show only towers with schedule records.
     if selected_project in (None, "all") and not selected_personnel:
-        master_towers = load_tower_master()
+        master_towers = cached_master_towers()
         lane_order = sorted(set(lane_order).union(master_towers), key=lane_key)
     filtered["_lane_sort"] = filtered["Lane"].map({lane: i for i, lane in enumerate(lane_order)})
     filtered = filtered.sort_values(["_lane_sort", "Start"], na_position="last")
@@ -2015,6 +2038,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
     lane_summary = filtered.loc[idx]
     lane_progress_map = lane_summary.set_index("Lane")["Progress"].to_dict()
     
+    lane_counts = filtered.groupby("Lane", observed=True).size().to_dict()
     ticktext = []
     for lane in lane_order:
     
@@ -2026,11 +2050,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
             ticktext.append(lane)
             continue
     
-        lane_rows = filtered.loc[
-            filtered["Lane"] == lane
-        ]
-    
-        if lane_rows.empty:
+        if not lane_counts.get(lane, 0):
             ticktext.append(f"{lane} <span style='color:#94a3b8;'><b>(0%)</b></span>")
             continue
 
@@ -2126,7 +2146,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
     #   xaxis  = 共用時間軸
     # =========================================================
     
-    wave_df = load_latest_wave_forecast()
+    wave_df = cached_chart_wave(int(time.time() // 300)).copy()
     
     if not wave_df.empty:
     
@@ -2956,15 +2976,18 @@ def calculate_overall_tower_completion(source_df, master_towers):
 @app.callback(
     Output("overall-progress-percent", "children"),
     Output("overall-progress-count", "children"),
+    Output("project-completed-jackets", "children"),
     Input("schedule-version-store", "data")
 )
 def update_overall_progress(schedule_version):
     if schedule_version is None:
-        return no_update, no_update
+        return no_update, no_update, no_update
     latest_df, _, _ = load_schedule_cached(schedule_version)
-    completed, total = calculate_overall_tower_completion(latest_df, load_tower_master())
+    completed, total = calculate_overall_tower_completion(latest_df, cached_master_towers())
     percentage = (100 * completed / total) if total else 0
-    return f"{percentage:.1f}%", f"{completed} / {total} Towers"
+    project_2026_df = latest_df.loc[pd.to_datetime(latest_df["Date"]).dt.year.eq(2026)]
+    project_completed, _ = calculate_overall_tower_completion(project_2026_df, cached_master_towers())
+    return f"{percentage:.1f}%", f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}"
 
 #%% Schedule Updated Time Auto Refresh
 @app.callback(
