@@ -3159,16 +3159,17 @@ def update_personnel_options(schedule_version, selected_personnel, old_options):
 
 #%% Overall F2 tower completion (unaffected by display filters)
 def calculate_overall_tower_completion(source_df, master_towers):
-    """Count distinct jackets ever reaching 100%, using vectorized extraction."""
+    """Count distinct jackets whose Inspection has ever reached 100%."""
     tower_set = set(master_towers)
     if not tower_set:
         return 0, 0
     if source_df.empty:
         return 0, len(tower_set)
 
-    # Filter progress first, rather than parsing every schedule record.
+    # Only Inspection completion counts; Data Processing and other activities do not.
     completed_rows = source_df.loc[
-        pd.to_numeric(source_df["Progress"], errors="coerce").ge(100)
+        source_df["Category"].fillna("").astype(str).str.strip().str.casefold().eq("inspection")
+        & pd.to_numeric(source_df["Progress"], errors="coerce").ge(100)
         & source_df["Lane"].fillna("").astype(str).str.strip().ne("Non-Offshore")
     ]
     if completed_rows.empty:
