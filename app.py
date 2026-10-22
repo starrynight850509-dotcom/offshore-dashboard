@@ -1904,6 +1904,41 @@ app.index_string = """<!DOCTYPE html>
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
+        <script>
+        // Capture Dash callback requests before Dash renderer initializes.
+        // Background interval callbacks after initial readiness do not reopen the overlay.
+        (function () {
+            var state = window.__initialDashCallbacks = {active: 0, seen: 0, lastActivity: performance.now()};
+            var nativeFetch = window.fetch;
+            window.fetch = function () {
+                var input = arguments[0];
+                var url = typeof input === 'string' ? input : (input && input.url) || '';
+                var isCallback = url.indexOf('_dash-update-component') !== -1;
+                if (!isCallback) return nativeFetch.apply(this, arguments);
+                state.active += 1;
+                state.seen += 1;
+                state.lastActivity = performance.now();
+                try {
+                    return Promise.resolve(nativeFetch.apply(this, arguments)).then(
+                        function (response) {
+                            state.active -= 1;
+                            state.lastActivity = performance.now();
+                            return response;
+                        },
+                        function (error) {
+                            state.active -= 1;
+                            state.lastActivity = performance.now();
+                            throw error;
+                        }
+                    );
+                } catch (error) {
+                    state.active -= 1;
+                    state.lastActivity = performance.now();
+                    throw error;
+                }
+            };
+        })();
+        </script>
         <style>
             #initial-dashboard-loading {
                 position: fixed; inset: 0; z-index: 99999;
@@ -1977,7 +2012,9 @@ app.index_string = """<!DOCTYPE html>
         (function () {
             var overlay = document.getElementById('initial-dashboard-loading');
             if (!overlay) return;
-            var finished = false, stage = 0, pendingFinish = false;
+            var finished = false, stage = 0;
+            var ganttRendered = false;
+            var callbackState = window.__initialDashCallbacks;
             var fill = document.getElementById('initial-loading-fill');
             var tux = document.getElementById('initial-loading-tux');
             var label = document.getElementById('initial-loading-stage');
@@ -2020,7 +2057,7 @@ app.index_string = """<!DOCTYPE html>
                 return value.length > 0 && value !== placeholder;
             }
             function checkDashboard() {
-                if (finished || pendingFinish) return;
+                if (finished) return;
                 // Each milestone is a prerequisite for the next. No timer-based progress.
                 if (!document.getElementById('overview-page') ||
                     !document.getElementById('schedule-page')) return;
@@ -2054,13 +2091,28 @@ app.index_string = """<!DOCTYPE html>
                 var graph = container && container.querySelector('.js-plotly-plot');
                 if (!graph || !graph._fullLayout || !graph._fullData ||
                     !graph.querySelector('.main-svg, .gl-container')) return;
-                pendingFinish = true;
-                requestAnimationFrame(function () {
+                // The chart alone is not sufficient: all initial Dash callback
+                // requests must finish, including those launched by other callbacks.
+                if (!ganttRendered) {
+                    ganttRendered = true;
                     requestAnimationFrame(function () {
-                        advance(5);
-                        window.setTimeout(finish, 450);
+                        requestAnimationFrame(checkDashboard);
                     });
-                });
+                    return;
+                }
+                if (!callbackState || callbackState.seen === 0 || callbackState.active !== 0) return;
+                // Dash may enqueue a dependent callback after the preceding request
+                // resolves; wait for the renderer and a short idle window.
+                if (document.title.indexOf('Updating...') !== -1 ||
+                    performance.now() - callbackState.lastActivity < 700) return;
+                advance(5);
+                window.setTimeout(function () {
+                    if (callbackState.active === 0 &&
+                        document.title.indexOf('Updating...') === -1 &&
+                        performance.now() - callbackState.lastActivity >= 700) {
+                        finish();
+                    }
+                }, 450);
             }
             var observer = new MutationObserver(checkDashboard);
             observer.observe(document.body, {childList: true, subtree: true, characterData: true});
@@ -2069,7 +2121,7 @@ app.index_string = """<!DOCTYPE html>
             // A failed callback must never be reported as 100% ready.
             // Keep the last verified stage visible and offer a manual retry.
             var watchdog = window.setTimeout(function () {
-                if (finished || pendingFinish) return;
+                if (finished || stage === 5) return;
                 tux.classList.add('still');
                 label.textContent = 'Initialization incomplete: ' + ([
                     'Dashboard interface', 'Schedule data', 'KPI cards',
@@ -3637,21 +3689,21 @@ print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=T
 
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
-
-#本機測試
-# server = app.server
 # if __name__ == "__main__":
 #     app.run(
-#         debug=True,
-#         host="127.0.0.1",
+#         debug=False,
+#         host="0.0.0.0",
 #         port=8050
-#     )    
+#     )
+
+#本機測試
+server = app.server
+if __name__ == "__main__":
+    app.run(
+        debug=True,
+        host="127.0.0.1",
+        port=8050
+    )    
     
     
 #http://127.0.0.1:8050/
