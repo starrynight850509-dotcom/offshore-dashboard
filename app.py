@@ -2244,13 +2244,18 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
     # LANE PROGRESS — same Inspection rule as overall/project completion KPI.
     # Intentionally independent of task/category/personnel display filters.
     inspection_map = latest_inspection_progress(chart_df, cached_master_towers())
+    # A tower is touched if it appears in ANY schedule record, regardless of Category.
+    # Use full history, independent of selected year and display filters.
+    all_history = prepared_chart_data(schedule_version)
+    touched_towers = set(all_history["_chart_lane"].dropna())
     ticktext = []
     for lane in lane_order:
         if lane in ("Project Events", "Non-Offshore"):
             ticktext.append(lane)
             continue
         progress = inspection_map.get(lane, 0)
-        color = "red" if progress < 50 else "orange" if progress < 80 else "green"
+        color = ("#94a3b8" if lane not in touched_towers else
+                 "red" if progress < 50 else "orange" if progress < 80 else "green")
         progress_text = f"{progress:g}"
         ticktext.append(f"{lane} <span style='color:{color};'><b>({progress_text}%)</b></span>")
     # =========================================================
