@@ -18,7 +18,7 @@
     Object.assign(line.style, {
       position: 'absolute', height: '0px',
       borderTop: '1px solid rgba(100, 116, 139, 0.25)',
-      pointerEvents: 'none', zIndex: '99999',
+      pointerEvents: 'none', zIndex: '1',
       visibility: 'visible', opacity: '1', display: 'none'
     });
     gd.appendChild(line);
