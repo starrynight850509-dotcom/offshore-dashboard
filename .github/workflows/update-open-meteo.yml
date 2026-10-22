@@ -2,7 +2,7 @@ name: Update F2 Open-Meteo Forecast
 
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -12,14 +12,141 @@ jobs:
   update-open-meteo:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Record execution time
+        id: execution
+        shell: bash
+        run: |
+          echo "timestamp=$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
+          echo "subject_time=$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+
       - name: Install dependencies
-        run: pip install requests psycopg2-binary
-      - name: Fetch and save Open-Meteo forecast
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests psycopg2-binary
+
+      - name: Update Open-Meteo forecast
+        id: update
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python open_meteo_updater.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python open_meteo_updater.py 2>&1 | tee update_open_meteo.log
+
+      - name: Prepare error details
+        if: ${{ failure() }}
+        id: error
+        env:
+          UPDATE_OUTCOME: ${{ steps.update.outcome }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import uuid
+          from pathlib import Path
+
+          log = Path('update_open_meteo.log')
+          content = log.read_text(errors='replace') if log.exists() else ''
+          outcome = os.environ.get('UPDATE_OUTCOME', '')
+          if outcome == 'failure' and content:
+              patterns = [
+                  (r'401|403|Unauthorized|Forbidden', 'API Authorization'),
+                  (r'429|Too Many Requests', 'API Rate Limit'),
+                  (r'HTTP 400|400 Bad Request', 'API Request'),
+                  (r'HTTP 5\d\d|5\d\d Server Error', 'API Server Error'),
+                  (r'password authentication failed', 'Database Authentication'),
+                  (r'could not translate host name|connection refused', 'Database Connection'),
+                  (r'timed out|Timeout', 'Connection Timeout'),
+                  (r'OperationalError|psycopg2', 'Database Operation'),
+                  (r'ModuleNotFoundError', 'Python Dependency'),
+                  (r'no hourly forecast|inconsistent lengths', 'Forecast Data Validation'),
+              ]
+              error_type = next((label for pattern, label in patterns if re.search(pattern, content, re.I)), 'Update Script Error')
+              lines = [line.strip() for line in content.splitlines() if line.strip()]
+              details = next((line for line in reversed(lines) if re.search(r'(Error|Exception|failed|timed out)', line, re.I)), lines[-1] if lines else 'No error output captured.')
+          else:
+              error_type = 'Workflow Error'
+              details = 'A setup or other workflow step failed before/outside the update script. Review the failed step in Actions.'
+
+          # Do not include credentials or long/sensitive log dumps in email.
+          secret = os.environ.get('DATABASE_URL', '')
+          if secret:
+              details = details.replace(secret, '[REDACTED_DATABASE_URL]')
+          details = re.sub(r'(?i)(postgres(?:ql)?://)[^\s]+', r'\1[REDACTED]', details)
+          details = re.sub(r'(?i)(password|token|api[_-]?key)\s*[=:]\s*\S+', r'\1=[REDACTED]', details)
+          details = details[:600]
+          delimiter = 'ERROR_' + uuid.uuid4().hex
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'type={error_type}\n')
+              output.write(f'details<<{delimiter}\n{details}\n{delimiter}\n')
+          PY
+
+      - name: Send success email
+        if: ${{ success() }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "[SUCCESS] F2 Open-Meteo Forecast | ${{ steps.execution.outputs.subject_time }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_USERNAME }}
+          body: |
+            F2 OPEN-METEO FORECAST UPDATE
+
+            Status: SUCCESS
+            Execution Time: ${{ steps.execution.outputs.timestamp }} (UTC+8)
+            Model: best_match
+            Database: PostgreSQL
+            Trigger: ${{ github.event_name }}
+
+            Repository: ${{ github.repository }}
+            Run ID: ${{ github.run_id }}
+
+            Run details:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Send failure email
+        if: ${{ failure() }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "[FAILED] F2 Open-Meteo Forecast | ${{ steps.execution.outputs.subject_time }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_USERNAME }}
+          body: |
+            F2 OPEN-METEO FORECAST UPDATE
+
+            Status: FAILED
+            Execution Time: ${{ steps.execution.outputs.timestamp }} (UTC+8)
+            Model: best_match
+            Database: PostgreSQL
+            Trigger: ${{ github.event_name }}
+
+            ERROR DETAILS
+            Error Type: ${{ steps.error.outputs.type }}
+            Error Message: ${{ steps.error.outputs.details }}
+
+            Repository: ${{ github.repository }}
+            Run ID: ${{ github.run_id }}
+
+            Run details:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
