@@ -1663,7 +1663,7 @@ app.layout = html.Div([
     # =========================================================
     html.Div([
         html.H2(
-            "🌊S2603BEX50 F2 Offshore Wind Farm Underwater Inspection",
+            "🌊F2 Offshore Wind Farm Underwater Inspection",
             className="ocean-title",
             style={"marginBottom": "5px"}
         ),
