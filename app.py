@@ -17,7 +17,7 @@ import re
 import psycopg2
 import requests
 
-from flask import Flask, request, Response
+from flask import Flask, request, Response, jsonify
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -35,8 +35,11 @@ _STARTUP_STEPS = []
 _STARTUP_LOCK = threading.Lock()
 
 _STARTUP_INSTRUMENT_SCHEDULE = False
+_STARTUP_INSTRUMENT_WAVE = False
 
 def record_startup_step(label, elapsed):
+    if label.startswith("Wave forecast · ") and not _STARTUP_INSTRUMENT_WAVE:
+        return
     with _STARTUP_LOCK:
         _STARTUP_STEPS.append((label, elapsed))
     print(f"[STARTUP] {label}: {elapsed:.3f} s", flush=True)
@@ -740,7 +743,11 @@ measure_startup("Initialize wave DB", _init_wave_db)
 # Windy forecast last update status
 # ============================================================
 
-wave_df_status = measure_startup("Load wave forecast (Neon)", load_latest_wave_forecast)
+_STARTUP_INSTRUMENT_WAVE = True
+try:
+    wave_df_status = measure_startup("Load wave forecast (Neon)", load_latest_wave_forecast)
+finally:
+    _STARTUP_INSTRUMENT_WAVE = False
 
 if not wave_df_status.empty:
     last_updated = wave_df_status["fetched_at"].max()
@@ -968,17 +975,21 @@ def _startup_diagnostics_html():
         ("Load wave forecast (Neon)", "Wave forecast · ", "#8b5cf6"),
         ("Initialize wave DB", "Wave DB · ", "#f59e0b"),
     ]
-    subcolors = ["#0ea5e9", "#6366f1", "#14b8a6", "#f97316", "#64748b"]
     main_steps = {label: duration for label, duration in steps if " · " not in label}
 
     def row(label, elapsed, color, denominator, nested=False):
         percent = elapsed / denominator * 100 if denominator > 0 else 0
+        if nested:
+            return (
+                f'<tr class="startup-detail"><td>↳ {escape(label)}</td>'
+                f'<td class="duration">{elapsed:.3f} s</td>'
+                f'<td class="duration">{percent:.1f}%</td><td></td></tr>'
+            )
         width = min(100, max(0, percent))
-        prefix = "↳ " if nested else ""
         return (
-            f'<tr><td>{prefix}{escape(label)}</td>'
-            f'<td class="duration">{elapsed:.3f} s</td>'
-            f'<td class="duration">{percent:.1f}%</td>'
+            f'<tr class="startup-main"><td><strong>{escape(label)}</strong></td>'
+            f'<td class="duration"><strong>{elapsed:.3f} s</strong></td>'
+            f'<td class="duration"><strong>{percent:.1f}%</strong></td>'
             f'<td><div class="startup-track"><div class="startup-bar" '
             f'style="width:{width:.2f}%;background:{color}"></div></div></td></tr>'
         )
@@ -989,13 +1000,18 @@ def _startup_diagnostics_html():
             continue
         duration = main_steps[main_label]
         rows += row(main_label, duration, color, total)
-        details = [(label[len(detail_prefix):], value) for label, value in steps
-                   if label.startswith(detail_prefix)]
-        for index, (label, value) in enumerate(details):
-            rows += row(label, value, subcolors[index % len(subcolors)], duration, nested=True)
+        # Deduplicate identical stage names: later dashboard refreshes are not startup work.
+        seen = set()
+        for label, value in steps:
+            if label.startswith(detail_prefix):
+                short_label = label[len(detail_prefix):]
+                if short_label not in seen:
+                    rows += row(short_label, value, color, duration, nested=True)
+                    seen.add(short_label)
 
+    grouped_names = {g[0] for g in groups}
     for label, elapsed in steps:
-        if " · " not in label and label not in [g[0] for g in groups]:
+        if " · " not in label and label not in grouped_names:
             rows += row(label, elapsed, "#10b981", total)
     rows += (f'<tr class="startup-total"><td><strong>Python startup total</strong></td>'
              f'<td class="duration"><strong>{total:.3f} s</strong></td>'
@@ -1013,7 +1029,7 @@ def _startup_diagnostics_html():
     )
 
 
-def _analytics():
+def _analytics(fragment=False):
     with engine.connect() as c:
         v = pd.read_sql_query(
             """
@@ -1147,6 +1163,9 @@ def _analytics():
     recent = re.sub(r'<thead>.*?</thead>',
                     '<thead><tr>' + ''.join(header_html) + '</tr></thead>',
                     recent, count=1, flags=re.DOTALL)
+
+    if fragment:
+        return {"cards": cards, "recent": recent, "session_count": len(session_rows)}
 
     return f"""
     <style>
@@ -1353,7 +1372,13 @@ def _analytics():
         .startup-table th:nth-child(4) {{ width: 26%; }}
         .startup-track {{ background: #e2e8f0; height: 10px; border-radius: 5px; overflow: hidden; }}
         .startup-bar {{ height: 100%; border-radius: 5px; }}
-        .startup-total {{ background: #f8fafc; }}
+        .startup-main {{ background: #eef4fb; border-top: 2px solid #cbd5e1; }}
+        .startup-main td {{ padding-top: 12px; padding-bottom: 12px; font-size: 13px; }}
+        .startup-main td:first-child {{ color: #0f172a; }}
+        .startup-detail {{ color: #64748b; background: #fff; }}
+        .startup-detail td:first-child {{ padding-left: 22px; }}
+        .startup-detail td {{ padding-top: 6px; padding-bottom: 6px; }}
+        .startup-total {{ background: #e2e8f0; border-top: 2px solid #94a3b8; }}
     </style>
 
     <h1>Site Analytics</h1>
@@ -1369,13 +1394,13 @@ def _analytics():
 
         <!-- Left: Summary + Recent Sessions -->
         <div class="analytics-summary">
-            {cards}
+            <div id="analytics-cards">{cards}</div>
 
             <h3>Recent Sessions</h3>
-            <div class="table-container">
+            <div class="table-container" id="recent-container">
                 {recent}
             </div>
-            <p class="note">
+            <p class="note" id="session-count">
                 Showing all {len(session_rows)} sessions ·
                 Scroll to view older records
             </p>
@@ -1392,15 +1417,19 @@ def _analytics():
 
     <script>
     (() => {{
-        const table = document.querySelector('.analytics-table');
-        if (!table) return;
-        const tbody = table.querySelector('tbody');
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        const filters = Array.from(table.querySelectorAll('.column-filter'));
-        // Reset browser-restored selections when opening or refreshing admin.
-        filters.forEach((filter, index) => {{ filter.selectedIndex = 0; }});
+        const refreshMs = 60000;
+        const cards = document.getElementById('analytics-cards');
+        const container = document.getElementById('recent-container');
+        const count = document.getElementById('session-count');
+        let busy = false;
+
         function applyFilters() {{
-            const sort = filters[0].value;
+            const table = container.querySelector('.analytics-table');
+            if (!table) return;
+            const tbody = table.querySelector('tbody');
+            const filters = Array.from(table.querySelectorAll('.column-filter'));
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const sort = filters[0] ? filters[0].value : 'desc';
             rows.sort((a, b) => {{
                 const at = a.cells[0].textContent.trim();
                 const bt = b.cells[0].textContent.trim();
@@ -1417,8 +1446,43 @@ def _analytics():
             }});
             tbody.appendChild(fragment);
         }}
-        filters.forEach(filter => filter.addEventListener('change', applyFilters));
+
+        // Delegated listener also works after the table is replaced.
+        container.addEventListener('change', event => {{
+            if (event.target.matches('.column-filter')) applyFilters();
+        }});
         applyFilters();
+
+        async function refreshAnalytics() {{
+            if (busy || document.hidden) return;
+            busy = true;
+            try {{
+                const response = await fetch('/admin/data', {{cache: 'no-store', credentials: 'same-origin'}});
+                if (!response.ok) throw new Error('Analytics refresh HTTP ' + response.status);
+                const data = await response.json();
+                const oldFilters = Array.from(container.querySelectorAll('.column-filter'));
+                const selected = oldFilters.map(filter => filter.value);
+                const scrollTop = container.scrollTop;
+                const scrollLeft = container.scrollLeft;
+                cards.innerHTML = data.cards;
+                container.innerHTML = data.recent;
+                const newFilters = Array.from(container.querySelectorAll('.column-filter'));
+                newFilters.forEach((filter, index) => {{
+                    if (Array.from(filter.options).some(option => option.value === selected[index])) {{
+                        filter.value = selected[index];
+                    }}
+                }});
+                count.textContent = 'Showing all ' + data.session_count + ' sessions · Scroll to view older records';
+                applyFilters();
+                container.scrollTop = scrollTop;
+                container.scrollLeft = scrollLeft;
+            }} catch (error) {{
+                console.warn('Analytics auto-refresh failed:', error);
+            }} finally {{
+                busy = false;
+            }}
+        }}
+        setInterval(refreshAnalytics, refreshMs);
     }})();
     </script>
 
@@ -1781,6 +1845,14 @@ def analytics_page():
     if not _check_auth():
         return _auth_required()
     return Response(_analytics(), mimetype="text/html")
+
+@server.route("/admin/data")
+def analytics_data():
+    if not _check_auth():
+        return _auth_required()
+    response = jsonify(_analytics(fragment=True))
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 app = Dash(__name__, server=server)
 
