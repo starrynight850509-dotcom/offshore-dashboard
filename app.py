@@ -2909,21 +2909,21 @@ def update_schedule_status(schedule_version):
     )
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
-
-#本機測試
-# server = app.server
 # if __name__ == "__main__":
 #     app.run(
-#         debug=True,
-#         host="127.0.0.1",
+#         debug=False,
+#         host="0.0.0.0",
 #         port=8050
-#     )    
+#     )
+
+#本機測試
+server = app.server
+if __name__ == "__main__":
+    app.run(
+        debug=True,
+        host="127.0.0.1",
+        port=8050
+    )    
     
     
 #http://127.0.0.1:8050/
