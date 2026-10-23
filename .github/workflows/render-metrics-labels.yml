@@ -1,0 +1,107 @@
+name: Render Metrics Labels Inspection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+    steps:
+      - name: Inspect metric labels and units (read only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${RENDER_API_KEY:-}" ]]; then
+            echo '::error::Missing secret RENDER_API_KEY'; exit 1
+          fi
+          if [[ ! "${RENDER_SERVICE_ID:-}" =~ ^srv-[a-zA-Z0-9]+$ ]]; then
+            echo '::error::Missing or invalid variable RENDER_SERVICE_ID'; exit 1
+          fi
+          python - <<'PY'
+          import collections
+          import datetime as dt
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          now = dt.datetime.now(dt.timezone.utc)
+          start = now - dt.timedelta(hours=24)
+          query = urllib.parse.urlencode({
+              'resource': os.environ['RENDER_SERVICE_ID'],
+              'startTime': start.strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'endTime': now.strftime('%Y-%m-%dT%H:%M:%SZ'),
+          })
+          print('Taiwan check time:', (now + dt.timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S'))
+          print('Inspecting label fields and units. Label values and credentials are hidden.')
+
+          for name, path in [('Bandwidth', 'bandwidth'), ('CPU', 'cpu'),
+                             ('Memory', 'memory'), ('Instance Count', 'instance-count')]:
+              print(f'\n=== {name} ===')
+              request = urllib.request.Request(
+                  f'https://api.render.com/v1/metrics/{path}?{query}',
+                  headers={'Authorization': 'Bearer ' + os.environ['RENDER_API_KEY'],
+                           'Accept': 'application/json',
+                           'User-Agent': 'render-metrics-label-inspection/1.0'})
+              try:
+                  with urllib.request.urlopen(request, timeout=25) as response:
+                      payload = json.load(response)
+                      print('HTTP:', response.status)
+              except urllib.error.HTTPError as exc:
+                  print('HTTP:', exc.code, '| response body hidden')
+                  continue
+              except Exception as exc:
+                  print('ERROR:', type(exc).__name__)
+                  continue
+              if not isinstance(payload, list):
+                  print('Unexpected response shape:', type(payload).__name__)
+                  continue
+              if not payload:
+                  print('NO DATA: N/A (not zero)')
+                  continue
+              units = collections.Counter(str(s.get('unit')) for s in payload if isinstance(s, dict))
+              fields = collections.Counter()
+              patterns = collections.Counter()
+              duplicates = 0
+              seen = set()
+              total = 0
+              for series in payload:
+                  if not isinstance(series, dict):
+                      continue
+                  labels = series.get('labels')
+                  if not isinstance(labels, list):
+                      print('Unexpected labels type:', type(labels).__name__)
+                      continue
+                  field_names = []
+                  for label in labels:
+                      if isinstance(label, dict) and isinstance(label.get('field'), str):
+                          field = label['field']
+                          fields[field] += 1
+                          field_names.append(field)
+                  patterns[tuple(sorted(field_names))] += 1
+                  for point in series.get('values', []):
+                      if not isinstance(point, dict):
+                          continue
+                      total += 1
+                      # Count duplicates only within identical label sets.
+                      key = (json.dumps(labels, sort_keys=True), point.get('timestamp'))
+                      if key in seen:
+                          duplicates += 1
+                      seen.add(key)
+              print('Series:', len(payload))
+              print('Units:', dict(units))
+              print('Label fields (counts):', dict(fields))
+              print('Label field combinations (counts):',
+                    {', '.join(k) or '(none)': v for k, v in patterns.items()})
+              print('Measurement points:', total)
+              print('Duplicate timestamps within same labels:', duplicates)
+          print('\nInspection complete. No API response bodies or label values printed. No data written.')
+          PY
