@@ -2524,7 +2524,7 @@ app.layout = html.Div([
         ], style={"lineHeight": "1.9"}),
         html.H4("Usage & Disclaimer", style={"marginTop": "18px"}),
         html.P("Weather forecasts, map layers and visualizations are informational and may be delayed, incomplete or inaccurate."),
-        html.P("Testing API – Not for operational use.",
+        html.P("Testing Data / API – Not for operational use.",
                style={"fontWeight": "700", "color": "#fbbf24"}),
         html.P("Do not use this dashboard as the sole basis for offshore operations, navigation or safety-critical decisions."),
         html.P("Third-party names do not imply sponsorship or endorsement. This page is an attribution inventory, not certification of compliance or permission to store, redistribute or commercially use third-party data. Confirm the actual subscriptions, data products, deployment dependencies, LICENSE/NOTICE obligations and any necessary provider permissions before production or distribution.",
