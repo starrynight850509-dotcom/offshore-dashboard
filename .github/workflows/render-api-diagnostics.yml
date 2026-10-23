@@ -1,0 +1,84 @@
+name: Render API Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify Render API access and locate dashboard
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RENDER_API_KEY:-}" ]]; then
+            echo "::error::GitHub Secret RENDER_API_KEY is not configured."
+            exit 1
+          fi
+
+          echo "Check time (Taiwan): $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "API endpoint: https://api.render.com/v1/services"
+          body_file="$(mktemp)"
+          trap 'rm -f "$body_file"' EXIT
+
+          status="$(curl --silent --show-error \
+            --connect-timeout 15 --max-time 60 \
+            --output "$body_file" --write-out '%{http_code}' \
+            --header 'Accept: application/json' \
+            --header "Authorization: Bearer ${RENDER_API_KEY}" \
+            'https://api.render.com/v1/services?limit=100')" || {
+              echo "::error::Render API request failed due to a network, TLS, or timeout error."
+              exit 1
+            }
+
+          echo "HTTP_STATUS=${status}"
+          if [[ "$status" != "200" ]]; then
+            echo "::error::Render API returned HTTP ${status}; verify API Key and permissions."
+            # Do not print the error body: it may contain account information.
+            exit 1
+          fi
+
+          python - "$body_file" <<'PY'
+          import json
+          import sys
+
+          try:
+              with open(sys.argv[1], encoding='utf-8') as f:
+                  payload = json.load(f)
+          except (ValueError, OSError) as exc:
+              print(f'::error::Invalid Render API JSON: {type(exc).__name__}')
+              sys.exit(1)
+
+          if not isinstance(payload, list):
+              print('::error::Unexpected API response: expected a list of services.')
+              sys.exit(1)
+
+          services = []
+          for item in payload:
+              if not isinstance(item, dict):
+                  continue
+              service = item.get('service', item)
+              if not isinstance(service, dict):
+                  continue
+              services.append(service)
+
+          print(f'API authentication passed. Returned services: {len(services)}')
+          matched = [s for s in services if s.get('name') == 'offshore-dashboard']
+          if matched:
+              for service in matched:
+                  print('Dashboard found:')
+                  print('  Name:', service.get('name', '(unknown)'))
+                  print('  Service ID:', service.get('id', '(missing)'))
+                  print('  Type:', service.get('type', '(unknown)'))
+                  print('  URL:', service.get('serviceDetails', {}).get('url', '(not provided)') if isinstance(service.get('serviceDetails'), dict) else '(not provided)')
+              print('Render API Diagnostics passed.')
+          else:
+              print('::warning::API access works, but offshore-dashboard was not found in the first 100 services.')
+              print('Check the service name, workspace, and pagination.')
+          PY
