@@ -17,7 +17,7 @@ import re
 import psycopg2
 import requests
 
-from flask import Flask, request, Response, jsonify
+from flask import Flask, request, Response, jsonify, session
 from dash import Dash, dcc, html, Input, Output
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -1873,7 +1873,34 @@ def build_upcoming_tasks(days=7, source_df=None):
     })
 #%%App
 server = Flask(__name__)
+# Configure a persistent random SECRET_KEY in Render / .env.
+# A random fallback permits local testing but invalidates sessions on restart.
+server.secret_key = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
+server.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                     SESSION_COOKIE_SECURE=os.getenv("RENDER") is not None)
 server.before_request(_track)
+
+# Initial pilot access code. Replace with a server-side employee-ID allowlist
+# before inviting staff; employee numbers alone are not strong authentication.
+RESOURCE_CODES = {"Iog54503373"}
+RESOURCE_SESSION_SECONDS = 8 * 60 * 60
+
+def resource_access_valid():
+    verified = session.get("resource_verified_at")
+    return isinstance(verified, (int, float)) and time.time() - verified < RESOURCE_SESSION_SECONDS
+
+RESOURCE_LINKS = [
+    ("Duty Roster", "https://iovtec.sharepoint.com/sites/SV-SurveyDept2/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FSV%2DSurveyDept2%2FShared%20Documents%2F%E6%8E%A2%E6%B8%AC%E9%83%A8%2D%E7%8F%BE%E5%A0%B4%E7%87%9F%E9%81%8B%E7%B5%84%2F%E7%8F%AD%E8%A1%A8&p=true&ga=1"),
+    ("DPR", "https://iovtec-my.sharepoint.com/:f:/g/personal/ali_chang_iovtec_com_tw/IgDMHGM8MshVQqUP_kgzjh4LAfee-_a7WUBFEz2pLI2bgXE?e=E5T8b7"),
+    ("Survey Log", "https://iovtec.sharepoint.com/sites/SV-SurveyDept2/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FSV%2DSurveyDept2%2FShared%20Documents%2F%E6%8E%A2%E6%B8%AC%E9%83%A8%2D%E7%8F%BE%E5%A0%B4%E7%87%9F%E9%81%8B%E7%B5%84%2FSurvey%20Log&viewid=a9aaccb6%2Dfaa4%2D446d%2Db6e3%2Dbeafdbfc933e"),
+    ("Photo Archive", "https://iovtec.sharepoint.com/sites/IOGWindProject/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FIOGWindProject%2FShared%20Documents%2F01%5FOperations%2F04%5FOngoing%20Projects%2F4372%5F%20Manpower%20for%20BeeX%2F2%2E%20Project%20Documentation%2F%E4%BD%9C%E6%A5%AD%E7%85%A7%E7%89%87&p=true&ct=1782188226845&or=Teams%2DHL&ga=1&LOF=1"),
+]
+
+def resource_links_view():
+    return [html.A(name, href=url, target="_blank", rel="noopener noreferrer",
+                   style={"display":"block", "padding":"8px 0", "color":"#9ed2ff"})
+            for name, url in RESOURCE_LINKS]
+
 
 @server.route(ANALYTICS_PATH)
 def analytics_page():
@@ -1893,7 +1920,7 @@ def analytics_data():
 def f2_marine_wave_map():
     return Response(F2_LEAFLET_MAP_HTML, mimetype="text/html")
 
-app = Dash(__name__, server=server)
+app = Dash(__name__, server=server, suppress_callback_exceptions=True)
 
 # Initial browser-only loading overlay. Progress counts observable milestones,
 # not elapsed time; the Tux mascot follows the completed portion of the track.
@@ -2448,21 +2475,10 @@ app.layout = html.Div([
         ], id="weather-ventusky-view", style={"display": "none"}),
     ], id="weather-page", style={"display": "none", "padding": "16px",
         "backgroundColor": "#203249", "borderRadius": "8px"}),
-    # Dedicated Resources page: SharePoint shortcuts.
+    # Resources: links are rendered only after server-side session verification.
     html.Div([
         html.H3("Project Resources", style={"marginTop": "0", "marginBottom": "12px"}),
-        html.A('Duty Roster', href='https://iovtec.sharepoint.com/sites/SV-SurveyDept2/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FSV%2DSurveyDept2%2FShared%20Documents%2F%E6%8E%A2%E6%B8%AC%E9%83%A8%2D%E7%8F%BE%E5%A0%B4%E7%87%9F%E9%81%8B%E7%B5%84%2F%E7%8F%AD%E8%A1%A8&p=true&ga=1', target="_blank",
-               rel="noopener noreferrer",
-               style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
-        html.A('DPR', href='https://iovtec-my.sharepoint.com/:f:/g/personal/ali_chang_iovtec_com_tw/IgDMHGM8MshVQqUP_kgzjh4LAfee-_a7WUBFEz2pLI2bgXE?e=E5T8b7', target="_blank",
-               rel="noopener noreferrer",
-               style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
-        html.A('Survey Log', href='https://iovtec.sharepoint.com/sites/SV-SurveyDept2/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FSV%2DSurveyDept2%2FShared%20Documents%2F%E6%8E%A2%E6%B8%AC%E9%83%A8%2D%E7%8F%BE%E5%A0%B4%E7%87%9F%E9%81%8B%E7%B5%84%2FSurvey%20Log&viewid=a9aaccb6%2Dfaa4%2D446d%2Db6e3%2Dbeafdbfc933e', target="_blank",
-               rel="noopener noreferrer",
-               style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
-        html.A('Photo Archive', href='https://iovtec.sharepoint.com/sites/IOGWindProject/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FIOGWindProject%2FShared%20Documents%2F01%5FOperations%2F04%5FOngoing%20Projects%2F4372%5F%20Manpower%20for%20BeeX%2F2%2E%20Project%20Documentation%2F%E4%BD%9C%E6%A5%AD%E7%85%A7%E7%89%87&p=true&ct=1782188226845&or=Teams%2DHL&ga=1&LOF=1', target="_blank",
-               rel="noopener noreferrer",
-               style={"display": "block", "padding": "8px 0", "color": "#9ed2ff"}),
+        html.Div(id="resources-access-content"),
     ], id="resources-page", style={"display": "none", "padding": "16px",
         "backgroundColor": "#203249", "borderRadius": "8px"}),
     # Licenses & Attribution — source inventory; terms must be reviewed per deployment.
@@ -2481,10 +2497,10 @@ app.layout = html.Div([
                  "Forecast data: CC BY 4.0 (credit, license link and indication of modifications). Free hosted API: non-commercial use only; business use requires an applicable commercial plan. The API data license and the API service terms are distinct. Credit should also appear near displayed forecast data."),
                 ("Copernicus Marine Service", "https://help.marine.copernicus.eu/en/articles/4444611-citing-copernicus-marine-products-and-services",
                  "Copernicus Marine Licence Agreement applies. Suggested derived-product credit: 'Generated using E.U. Copernicus Marine Service Information' plus the DOI(s) of the actual product(s). Product IDs/DOIs and any additional notices remain to be verified."),
-                ("OpenStreetMap", "https://www.openstreetmap.org/copyright",
-                 "Geographic data: ODbL; credit © OpenStreetMap contributors on the map itself. If using OSM Foundation tile servers, follow the separate tile usage policy; tile imagery and other basemaps may have additional terms."),
                 ("Ventusky", "https://embed.ventusky.com/",
                  "External embedded weather map. Use the provider's official embed service and preserve its attribution; review embedding and commercial-use terms for this deployment."),
+                ("OpenStreetMap", "https://www.openstreetmap.org/copyright",
+                 "Geographic data: ODbL; credit © OpenStreetMap contributors on the map itself. If using OSM Foundation tile servers, follow the separate tile usage policy; tile imagery and other basemaps may have additional terms.")
             ]
         ], style={"lineHeight": "1.85"}),
         html.H4("Third-Party Software", style={"marginTop": "18px"}),
@@ -2495,15 +2511,15 @@ app.layout = html.Div([
                             style={"color": "#9ed2ff"}), " — ", license_name])
             for name, license_name, url in [
                 ("Dash", "MIT", "https://github.com/plotly/dash/blob/dev/LICENSE"),
-                ("Plotly.py", "MIT", "https://github.com/plotly/plotly.py/blob/main/LICENSE.txt"),
-                ("pandas", "BSD-3-Clause", "https://github.com/pandas-dev/pandas/blob/main/LICENSE"),
-                ("NumPy", "BSD-3-Clause; bundled third-party notices may apply", "https://github.com/numpy/numpy/blob/main/LICENSE.txt"),
                 ("Flask", "BSD-3-Clause", "https://github.com/pallets/flask/blob/main/LICENSE.txt"),
-                ("SQLAlchemy", "MIT", "https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE"),
-                ("psycopg2", "LGPL with exceptions", "https://www.psycopg.org/docs/license.html"),
-                ("Requests", "Apache-2.0", "https://github.com/psf/requests/blob/main/LICENSE"),
-                ("python-dotenv", "BSD-3-Clause", "https://github.com/theskumar/python-dotenv/blob/main/LICENSE"),
                 ("Leaflet 1.9.4", "BSD-2-Clause", "https://github.com/Leaflet/Leaflet/blob/v1.9.4/LICENSE"),
+                ("NumPy", "BSD-3-Clause; bundled third-party notices may apply", "https://github.com/numpy/numpy/blob/main/LICENSE.txt"),
+                ("pandas", "BSD-3-Clause", "https://github.com/pandas-dev/pandas/blob/main/LICENSE"),
+                ("Plotly.py", "MIT", "https://github.com/plotly/plotly.py/blob/main/LICENSE.txt"),
+                ("psycopg2", "LGPL with exceptions", "https://www.psycopg.org/docs/license.html"),
+                ("python-dotenv", "BSD-3-Clause", "https://github.com/theskumar/python-dotenv/blob/main/LICENSE"),
+                ("Requests", "Apache-2.0", "https://github.com/psf/requests/blob/main/LICENSE"),
+                ("SQLAlchemy", "MIT", "https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE"),
             ]
         ], style={"lineHeight": "1.9"}),
         html.H4("Usage & Disclaimer", style={"marginTop": "18px"}),
@@ -2546,6 +2562,78 @@ def switch_weather_map(source, page):
         ventusky_iframe,
     )
 
+
+def resource_login_view(error=False):
+    """Dark input with a show/hide toggle; no credentials are stored in the browser."""
+    return html.Div([
+        html.P("IOG Employee Verification", style={"color": "#cbd5e1"}),
+        html.P("Invalid employee code. Please try again.",
+               style={"color": "#ffb4b4"}) if error else None,
+        html.Div([
+            dcc.Input(
+                id="resource-employee-code", type="password",
+                placeholder="Employee Code", debounce=False, autoComplete="off",
+                style={"flex": "1", "minWidth": "0", "padding": "10px 12px",
+                       "backgroundColor": "#101820", "color": "#ffffff",
+                       "border": "1px solid #526479", "borderRadius": "6px",
+                       "fontSize": "14px", "outline": "none"},
+            ),
+            html.Button(
+                "Show", id="resource-visibility-button", n_clicks=0,
+                title="Show or hide employee code", **{"aria-label": "Show or hide employee code"},
+                style={"padding": "9px 13px", "backgroundColor": "#101820",
+                       "color": "#ffffff", "border": "1px solid #526479",
+                       "borderRadius": "6px", "cursor": "pointer"},
+            ),
+        ], style={"display": "flex", "gap": "8px", "maxWidth": "420px",
+                  "alignItems": "stretch"}),
+        html.Button(
+            "Continue", id="resource-unlock-button", n_clicks=0,
+            style={"marginTop": "12px", "padding": "9px 16px",
+                   "backgroundColor": "#101820", "color": "#ffffff",
+                   "border": "1px solid #526479", "borderRadius": "6px",
+                   "cursor": "pointer"},
+        ),
+    ])
+
+
+@app.callback(
+    Output("resources-access-content", "children"),
+    Input("main-navigation", "value"),
+)
+def show_resources_access(page):
+    if page != "resources":
+        return []
+    if resource_access_valid():
+        return resource_links_view()
+    return resource_login_view()
+
+
+@app.callback(
+    Output("resource-employee-code", "type"),
+    Output("resource-visibility-button", "children"),
+    Input("resource-visibility-button", "n_clicks"),
+    prevent_initial_call=True,
+)
+def toggle_resource_code_visibility(n_clicks):
+    visible = bool(n_clicks and n_clicks % 2)
+    return ("text" if visible else "password",
+            "Hide" if visible else "Show")
+
+
+@app.callback(
+    Output("resources-access-content", "children", allow_duplicate=True),
+    Input("resource-unlock-button", "n_clicks"),
+    State("resource-employee-code", "value"),
+    prevent_initial_call=True,
+)
+def unlock_resources(n_clicks, code):
+    if not n_clicks:
+        return no_update
+    if not code or not any(secrets.compare_digest(code.strip(), item) for item in RESOURCE_CODES):
+        return resource_login_view(error=True)
+    session["resource_verified_at"] = time.time()
+    return resource_links_view()
 
 @app.callback(
     Output("overview-page", "style"),
