@@ -1647,9 +1647,6 @@ def _analytics(fragment=False):
     }})();
     </script>
 
-    <p>
-        <a href="/">&larr; Back to Dashboard</a>
-    </p>
     """
 
 
