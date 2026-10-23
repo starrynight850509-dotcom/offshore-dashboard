@@ -1761,69 +1761,105 @@ category_order = [
 cat_list = category_order
 PROJECT_CODES = {2025: "S2507BEX50", 2026: "S2603BEX50"}
 #%%Summary Table
-projects = [
-    {"name":"BeeX",
-     "logo":"beex_logo.png",
-     "start":datetime(2026,4,6).date()},
-    {"name":"IOG",
-     "logo":"iog_logo.png",
-     "start":datetime(2026,4,18).date()}]
-def build_summary_table():
-    today = pd.Timestamp.now(tz="Asia/Taipei").date()
-    rows = []
-    for p in projects:
-        days = (today - p["start"]).days + 1
-        rows.append(
-            html.Tr([
-                html.Td(
-                    html.Img(
-                        src=get_asset_url(p["logo"]),
-                        alt=p["name"],
-                        title=p["name"],
-                        style={"height":"36px", "width":"140px", "maxWidth":"100%", "objectFit":"contain", "display":"block", "margin":"0 auto", "transform":"scale(0.85)" if p["name"] == "BeeX" else "scale(1.15)"}
-                    ),
-                    style={"textAlign":"center", "verticalAlign":"middle"}
-                ),
-                html.Td(str(p["start"])),
-                html.Td(str(today)),
-                html.Td(
-                    str(days),
-                    style={
-                        "color":"red",
-                        "fontSize":"20px",
-                        "fontWeight":"bold"
-                    }
-                )
-            ])
-        )
-    return html.Table(
-        [
-            html.Tr([
-                html.Th("Company",style={"width":"25%"}),
-                html.Th("Start",style={"width":"25%"}),
-                html.Th("Today",style={"width":"25%"}),
-                html.Th("Days",style={"width":"25%"})
-            ])
-        ] + rows,
-        className="ocean-company-table",
-        style={
-            "width": "100%",                 # 表格寬度佔滿
-            "tableLayout": "fixed",          # 固定欄寬，不依內容自動調整
-            "textAlign": "center",           # 所有文字置中
-            "border": "1px solid lightgray", # 表格外框為淺灰色 1px
-            #"borderCollapse": "collapse",     # 合併相鄰儲存格邊框，避免雙線
-            "borderRadius": "8px"
-        }
-    )
-#%%KPI Dashboard
-def calculate_kpi(source_df):
+# Company participation windows; None end means ongoing, not calendar-year based.
+# 2025 BeeX has no recorded participation dates.
+PROJECT_COMPANIES = {
+    2025: {
+        "BeeX": {"start": None, "end": None},
+        "IOG": {"start": "2025-08-21", "end": "2025-09-12"},
+    },
+    2026: {
+        "BeeX": {"start": "2026-04-06", "end": None},
+        "IOG": {"start": "2026-04-18", "end": None},
+    },
+}
+COMPANY_LOGOS = {"BeeX": "beex_logo.png", "IOG": "iog_logo.png"}
+
+def company_window(year, company):
+    entry = PROJECT_COMPANIES.get(int(year), {}).get(company, {})
+    start = pd.Timestamp(entry["start"]).normalize() if entry.get("start") else None
+    end = pd.Timestamp(entry["end"]).normalize() if entry.get("end") else None
+    return start, end
+
+def build_summary_table(selected_project="2026"):
     today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
-    # KPI is independent of the selected historical year.
-    beex_start = pd.Timestamp(projects[0]["start"])
-    kpi_df = source_df.loc[
-        source_df["Date"].dt.normalize().between(beex_start, today)
-    ].copy()
-    
+    all_projects = selected_project in (None, "all")
+    years = sorted(PROJECT_COMPANIES) if all_projects else [int(selected_project)]
+    # In All Projects, use the earliest documented start and the latest known end;
+    # an ongoing company window keeps the column as Today.
+    rows_data = []
+    for company in ("BeeX", "IOG"):
+        windows = [company_window(y, company) for y in years]
+        starts = [start for start, _ in windows if start is not None]
+        if not starts:
+            rows_data.append((company, None, None, None))
+            continue
+        start = min(starts)
+        active = any(st is not None and en is None for st, en in windows)
+        ends = [en for st, en in windows if st is not None and en is not None]
+        end = today if active else max(ends)
+        # For All Projects, exclude the gaps between separate participation windows.
+        if all_projects:
+            intervals = sorted((st, min(en, today) if en is not None else today)
+                               for st, en in windows if st is not None)
+            merged = []
+            for lo, hi in intervals:
+                if hi < lo:
+                    continue
+                if merged and lo <= merged[-1][1] + pd.Timedelta(days=1):
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+                else:
+                    merged.append((lo, hi))
+            days = sum((hi - lo).days + 1 for lo, hi in merged)
+        else:
+            days = (end - start).days + 1
+        rows_data.append((company, start, end, days))
+    has_active = any(st is not None and en is None for year in years for st, en in
+                     [company_window(year, "IOG"), company_window(year, "BeeX")])
+    date_heading = "Today" if has_active else "End"
+    rows = []
+    for company, start, end, days in rows_data:
+        rows.append(html.Tr([
+            html.Td(html.Img(src=get_asset_url(COMPANY_LOGOS[company]), alt=company,
+                title=company, style={"height":"36px", "width":"140px", "maxWidth":"100%",
+                    "objectFit":"contain", "display":"block", "margin":"0 auto",
+                    "transform":"scale(0.85)" if company == "BeeX" else "scale(1.15)"}),
+                style={"textAlign":"center", "verticalAlign":"middle"}),
+            html.Td(start.strftime("%Y-%m-%d") if start is not None and not (all_projects and company == "BeeX" and any(company_window(y, "BeeX")[0] is None for y in years)) else "—"),
+            html.Td(end.strftime("%Y-%m-%d") if end is not None else "—"),
+            html.Td(str(days) if days is not None else "—",
+                style={"color":"red", "fontSize":"20px", "fontWeight":"bold"})
+        ]))
+    return html.Table([
+        html.Tr([html.Th("Company",style={"width":"25%"}),
+                 html.Th("Start",style={"width":"25%"}),
+                 html.Th(date_heading,style={"width":"25%"}),
+                 html.Th("Days",style={"width":"25%"})])
+    ] + rows, className="ocean-company-table", style={
+        "width":"100%", "tableLayout":"fixed", "textAlign":"center",
+        "border":"1px solid lightgray", "borderRadius":"8px"})
+
+#%%KPI Dashboard
+def calculate_kpi(source_df, selected_project="2026"):
+    today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
+    # Days KPIs are measured only within IOG participation windows.
+    # All Projects combines the raw rows from each IOG window before counting
+    # distinct dates; a date occurring in multiple projects is counted once.
+    dates = source_df["Date"].dt.normalize()
+    if selected_project in (None, "all"):
+        years = sorted(PROJECT_COMPANIES)
+    else:
+        years = [int(selected_project)]
+    mask = pd.Series(False, index=source_df.index)
+    for year in years:
+        start, end = company_window(year, "IOG")
+        if start is None:
+            continue
+        upper = min(end, today) if end is not None else today
+        if upper >= start:
+            mask |= dates.between(start, upper) & dates.dt.year.eq(year)
+    kpi_df = source_df.loc[mask].copy()
+
     inspection_days = (
         kpi_df.loc[
             kpi_df["Category"] == "Inspection",
@@ -1919,7 +1955,7 @@ def build_card(title, value):
                 "borderRadius": "8px"
                 })
 #%%upcoming_tasks
-def build_upcoming_tasks(days=7, source_df=None):
+def build_upcoming_tasks(days=7, source_df=None, selected_project="2026"):
     if source_df is None:
         source_df = df
     today = pd.Timestamp.now(tz="Asia/Taipei").tz_localize(None).normalize()
@@ -1929,6 +1965,8 @@ def build_upcoming_tasks(days=7, source_df=None):
         (source_df["Start"] >= today) &
         (source_df["Start"] < end_day)
     ].copy()
+    if selected_project not in (None, "all"):
+        upcoming = upcoming.loc[upcoming["Date"].dt.year.eq(int(selected_project))].copy()
 
     if upcoming.empty:
         return html.Div(
@@ -2435,13 +2473,27 @@ app.layout = html.Div([
     # SUMMARY TABLE + KPI (控制面板區)
     # =========================================================
     html.Div([
-        # 2026 project scope label (display only)
+        # Independent Overview selector (Schedule filter remains unchanged).
         html.Div([
-            html.Span("2026 Project Overview — S2603BEX50", style={"fontWeight": "600", "color": "#ffffff"}),
-            html.Span(" | Completed Jackets: —", id="project-completed-jackets", style={"fontWeight": "600", "color": "#ffffff"})
-        ], style={"display": "flex", "justifyContent": "flex-start", "alignItems": "center", "marginBottom": "8px"}),
-        # Summary Table
-        build_summary_table(),
+            html.Div([
+                html.Span(f"{int(df['Date'].dt.year.dropna().max())} Project Overview — {PROJECT_CODES.get(int(df['Date'].dt.year.dropna().max()), str(int(df['Date'].dt.year.dropna().max())))}", id="overview-project-title",
+                          style={"fontWeight": "600", "color": "#ffffff"}),
+                html.Span(" | Completed Jackets: —", id="project-completed-jackets",
+                          style={"fontWeight": "600", "color": "#ffffff"})
+            ], style={"display": "flex", "alignItems": "center", "flexWrap": "wrap"}),
+            dcc.Dropdown(
+                id="overview-project-filter",
+                options=[{"label": "All Projects", "value": "all"}] + [
+                    {"label": f"{year} | {PROJECT_CODES.get(year, str(year))}", "value": str(year)}
+                    for year in sorted(df["Date"].dt.year.dropna().astype(int).unique(), reverse=True)
+                ],
+                value=str(int(df["Date"].dt.year.dropna().max())), clearable=False,
+                style={"width": "230px", "minWidth": "190px", "color": "#24364c"}
+            )
+        ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center",
+                  "gap": "12px", "flexWrap": "wrap", "marginBottom": "8px"}),
+        # Company start dates are currently documented for the 2026 project only.
+        html.Div(id="overview-company-summary", children=build_summary_table(str(int(df["Date"].dt.year.dropna().max())))),
         # KPI Cards
         html.Div(
             [
@@ -2704,7 +2756,14 @@ app.layout = html.Div([
                style={"fontSize": "12px", "color": "#94a3b8", "textAlign": "left"}),
     ], id="licenses-page", style={"display": "none", "padding": "16px",
         "backgroundColor": "#203249", "borderRadius": "8px", "lineHeight": "1.6",
-        "textAlign": "justify"})
+        "textAlign": "justify"}),
+    # Main Dashboard footer only. The standalone /admin route is unchanged.
+    html.Div([
+        html.Div("© 2026 Ali Chang · Built for internal project tracking"),
+        html.A("ali.chang@iovtec.com.tw", href="mailto:ali.chang@iovtec.com.tw",
+               style={"color": "#94a3b8", "textDecoration": "none"})
+    ], style={"textAlign": "center", "fontSize": "11px", "color": "#94a3b8",
+              "lineHeight": "1.8", "padding": "20px 8px 10px", "marginTop": "12px"})
 ], className="ocean-app")
 
 @app.callback(
@@ -3794,15 +3853,16 @@ def update_open_meteo_status(_):
 @app.callback(
     Output("kpi-container", "children"),
     Output("initial-kpi-check", "children"),
-    Input("schedule-version-store", "data")
+    Input("schedule-version-store", "data"),
+    Input("overview-project-filter", "value")
 )
-def update_kpi(schedule_version):
+def update_kpi(schedule_version, selected_project):
 
     if schedule_version is None:
         return no_update, no_update
     latest_df, _, _ = load_schedule_cached(schedule_version)
 
-    latest_kpi = calculate_kpi(latest_df)
+    latest_kpi = calculate_kpi(latest_df, selected_project)
 
     return [
         build_card(title, value)
@@ -3811,9 +3871,10 @@ def update_kpi(schedule_version):
 #%% Upcoming Tasks Auto Refresh
 @app.callback(
     Output("upcoming-container", "children"),
-    Input("schedule-version-store", "data")
+    Input("schedule-version-store", "data"),
+    Input("overview-project-filter", "value")
 )
-def update_upcoming_tasks(schedule_version):
+def update_upcoming_tasks(schedule_version, selected_project):
 
     if schedule_version is None:
         return no_update
@@ -3821,7 +3882,8 @@ def update_upcoming_tasks(schedule_version):
 
     return build_upcoming_tasks(
         days=7,
-        source_df=latest_df
+        source_df=latest_df,
+        selected_project=selected_project
     )
 #%% Task Filter Auto Refresh
 @app.callback(
@@ -3973,14 +4035,57 @@ def cached_completion_counts(schedule_version):
     Output("overall-progress-count", "children"),
     Output("project-completed-jackets", "children"),
     Output("initial-progress-check", "children"),
-    Input("schedule-version-store", "data")
+    Input("schedule-version-store", "data"),
+    Input("overview-project-filter", "value")
 )
-def update_overall_progress(schedule_version):
+def update_overall_progress(schedule_version, selected_project):
     if schedule_version is None:
         return no_update, no_update, no_update, no_update
-    completed, total, project_completed = cached_completion_counts(schedule_version)
+    completed, total, project_2026_completed = cached_completion_counts(schedule_version)
     percentage = (100 * completed / total) if total else 0
+    if selected_project == "2026":
+        project_completed = project_2026_completed
+    elif selected_project in (None, "all"):
+        project_completed = completed
+    else:
+        latest_df, _, _ = load_schedule_cached(schedule_version)
+        year_df = latest_df.loc[latest_df["Date"].dt.year.eq(int(selected_project))]
+        project_completed, _ = calculate_overall_tower_completion(year_df, cached_master_towers())
     return f"{percentage:.1f}%", f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}", "ready"
+
+#%% Overview project scope (independent from Schedule filters)
+@app.callback(
+    Output("overview-project-filter", "options"),
+    Output("overview-project-filter", "value"),
+    Input("schedule-version-store", "data"),
+    State("overview-project-filter", "value"),
+    State("overview-project-filter", "options")
+)
+def refresh_overview_projects(schedule_version, selected, previous_options):
+    if schedule_version is None:
+        return no_update, no_update
+    latest_df, _, _ = load_schedule_cached(schedule_version)
+    years = sorted(latest_df["Date"].dt.year.dropna().astype(int).unique(), reverse=True)
+    options = [{"label": "All Projects", "value": "all"}] + [
+        {"label": f"{year} | {PROJECT_CODES.get(year, str(year))}", "value": str(year)}
+        for year in years
+    ]
+    valid = {item["value"] for item in options}
+    next_selected = selected if selected in valid else (str(years[0]) if years else "all")
+    return (no_update if previous_options == options else options,
+            no_update if selected == next_selected else next_selected)
+
+@app.callback(
+    Output("overview-project-title", "children"),
+    Output("overview-company-summary", "children"),
+    Input("overview-project-filter", "value")
+)
+def update_overview_heading(selected_project):
+    if selected_project in (None, "all"):
+        return "All Projects Overview", build_summary_table("all")
+    year = int(selected_project)
+    title = f"{year} Project Overview — {PROJECT_CODES.get(year, str(year))}"
+    return title, build_summary_table(selected_project)
 
 #%% Schedule Updated Time Auto Refresh
 @app.callback(
