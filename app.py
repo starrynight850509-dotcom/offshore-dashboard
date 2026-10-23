@@ -1880,6 +1880,14 @@ server.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax"
                      SESSION_COOKIE_SECURE=os.getenv("RENDER") is not None)
 server.before_request(_track)
 
+# Lightweight liveness endpoint for external health monitoring.
+# Does not query Neon or call forecast APIs.
+@server.get("/healthz")
+def healthz():
+    response = jsonify(status="ok")
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 # Initial pilot access code. Replace with a server-side employee-ID allowlist
 # before inviting staff; employee numbers alone are not strong authentication.
 RESOURCE_CODES = {"Iog54503373"}
