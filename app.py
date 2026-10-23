@@ -2190,7 +2190,7 @@ app.layout = html.Div([
     
         ], style={"flex": "4", "minWidth": 0, "textAlign": "left"}),
         html.Div([
-            html.Div("Overall Progress", style={"fontSize": "12px", "color": "#cbd5e1"}),
+            html.Div("Overall Completed (All Years)", style={"fontSize": "12px", "color": "#cbd5e1"}),
             html.Div("—", id="overall-progress-percent", style={
                 "fontSize": "26px", "fontWeight": "700", "color": "white", "lineHeight": "1.25"
             }),
