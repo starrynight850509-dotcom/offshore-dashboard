@@ -2134,13 +2134,15 @@ app.index_string = """<!DOCTYPE html>
                 if (document.title.indexOf('Updating...') !== -1 ||
                     performance.now() - callbackState.lastActivity < 700) return;
                 advance(5);
+                // Keep the completed loading screen visible for one second.
+                // Only the visual transition is delayed; data loading is unchanged.
                 window.setTimeout(function () {
                     if (callbackState.active === 0 &&
                         document.title.indexOf('Updating...') === -1 &&
                         performance.now() - callbackState.lastActivity >= 700) {
                         finish();
                     }
-                }, 450);
+                }, 1000);
             }
             var observer = new MutationObserver(checkDashboard);
             observer.observe(document.body, {childList: true, subtree: true, characterData: true});
