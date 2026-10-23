@@ -2943,7 +2943,7 @@ app.layout = html.Div([
                 html.H3("Acknowledgements", style={"marginTop": "0"}),
                 html.P("I would like to thank my colleagues for the questions, suggestions, and unexpected problems that helped shape this project."),
                 html.P("Special thanks to the open-source communities, developers, and tools whose work made this dashboard possible."),
-                html.P("And finally, to Tux and the little octopus-cat who kept me company through countless updates."),
+                html.P("And finally, to Tux and the little Octocat who kept me company through countless updates."),
                 html.P("What began as a Gantt Chart somehow became an entire dashboard."),
                 html.P("I am still not entirely sure how that happened. XD"),
             ], style={"flex": "1", "minWidth": "230px", "lineHeight": "1.85"}),
