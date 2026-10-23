@@ -2491,7 +2491,8 @@ app.layout = html.Div([
         html.H4("Data Sources & Services"),
         html.Ul([
             html.Li([html.A(name, href=url, target="_blank", rel="noopener noreferrer",
-                            style={"color": "#9ed2ff"}), " — ", note])
+                            style={"color": "#9ed2ff"}), " — ", note],
+                    style={"textAlign": "justify", "textAlignLast": "left"})
             for name, url, note in [
                 ("Windy Point Forecast API", "https://account.windy.com/agreements/windy-forecast-api-terms-of-use",
                  "Proprietary API terms. Trial access is for development only; the testing API returns modified/shuffled data. Terms restrict storing forecast data, derivative databases and redistribution. This application stores Windy forecasts in PostgreSQL: obtain explicit authorization before continuing that use. Provider and original data-source attribution may also be required."),
@@ -2510,7 +2511,8 @@ app.layout = html.Div([
                style={"color": "#cbd5e1"}),
         html.Ul([
             html.Li([html.A(name, href=url, target="_blank", rel="noopener noreferrer",
-                            style={"color": "#9ed2ff"}), " — ", license_name])
+                            style={"color": "#9ed2ff"}), " — ", license_name],
+                    style={"textAlign": "justify", "textAlignLast": "left"})
             for name, license_name, url in [
                 ("Dash", "MIT", "https://github.com/plotly/dash/blob/dev/LICENSE"),
                 ("Flask", "BSD-3-Clause", "https://github.com/pallets/flask/blob/main/LICENSE.txt"),
