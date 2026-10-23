@@ -2394,7 +2394,8 @@ app.layout = html.Div([
         n_intervals=0
     ),
     # Compact navigation: keep all pages mounted for existing callbacks.
-    dcc.Tabs(
+    html.Div([
+        dcc.Tabs(
         id="main-navigation", value="overview",
         children=[
             dcc.Tab(label=label, value=value,
@@ -2413,8 +2414,26 @@ app.layout = html.Div([
                                  ("Licenses", "licenses")]
         ],
         className="ocean-navigation",
-        style={"marginBottom": "10px", "width": "fit-content", "maxWidth": "100%"}
-    ),
+        style={"width": "fit-content", "maxWidth": "100%"}
+        ),
+        html.A(
+            [html.Span("⚙", style={"marginRight": "6px"}), "Admin"],
+            href="/admin", target="_blank", rel="noopener noreferrer",
+            title="Open Admin Console in a new tab",
+            style={
+                "display": "inline-flex", "alignItems": "center",
+                "justifyContent": "center", "whiteSpace": "nowrap",
+                "textDecoration": "none", "padding": "7px 17px",
+                "fontSize": "13px", "fontWeight": "500",
+                "backgroundColor": "#203249", "color": "#b9cce5",
+                "border": "1px solid #344b65", "borderBottom": "2px solid transparent"
+            }
+        )
+    ], style={
+        "display": "flex", "justifyContent": "space-between",
+        "alignItems": "flex-start", "gap": "12px",
+        "flexWrap": "wrap", "marginBottom": "10px", "width": "100%"
+    }),
     # =========================================================
     # SUMMARY TABLE + KPI (控制面板區)
     # =========================================================
