@@ -2473,11 +2473,9 @@ app.index_string = """<!DOCTYPE html>
         position();
         timeout=setTimeout(function(){
           if(id!==token || !active) return;
-          overlay.dataset.phase='failed';
+          // A slow update is not a failure: keep waiting for actual chart completion.
           if(caption) caption.textContent='Update taking longer than expected';
-          overlay.style.pointerEvents='none';
-          doneTimer=setTimeout(()=>hide(id),2200);
-        },15000);
+        },8000);
       }
       function complete(confirmed = true) {
         if(!active) return;
