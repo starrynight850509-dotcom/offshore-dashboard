@@ -1,0 +1,169 @@
+name: Render Resource Monitoring v1.0
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+    steps:
+      - name: Read-only 24-hour resource report
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${RENDER_API_KEY:-}" ]]; then
+            echo '::error::Missing GitHub Secret RENDER_API_KEY'; exit 1
+          fi
+          if [[ ! "${RENDER_SERVICE_ID:-}" =~ ^srv-[a-zA-Z0-9]+$ ]]; then
+            echo '::error::Missing or invalid GitHub Variable RENDER_SERVICE_ID'; exit 1
+          fi
+          python - <<'PY'
+          import collections
+          import datetime as dt
+          import json
+          import os
+          import statistics
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          now = dt.datetime.now(dt.timezone.utc)
+          start = now - dt.timedelta(hours=24)
+          qs = urllib.parse.urlencode({
+              'resource': os.environ['RENDER_SERVICE_ID'],
+              'startTime': start.strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'endTime': now.strftime('%Y-%m-%dT%H:%M:%SZ'),
+          })
+
+          def stamp(raw):
+              if not isinstance(raw, str):
+                  return None
+              try:
+                  return dt.datetime.fromisoformat(raw.replace('Z', '+00:00')).astimezone(dt.timezone.utc)
+              except ValueError:
+                  return None
+
+          def labels_key(series):
+              pairs = []
+              for item in series.get('labels', []):
+                  if isinstance(item, dict):
+                      pairs.append((str(item.get('field', '')), str(item.get('value', ''))))
+              return tuple(sorted(pairs))
+
+          def display_time(t):
+              return t.astimezone(dt.timezone(dt.timedelta(hours=8))).strftime('%Y-%m-%d %H:%M CST')
+
+          print('Render Resource Monitoring v1.0 | read-only | manual')
+          print('Check:', display_time(now))
+          print('Window:', display_time(start), 'to', display_time(now))
+          print('Service ID:', os.environ['RENDER_SERVICE_ID'])
+          print('Note: averages are per-observation, not time-weighted; series may be sparse.')
+
+          for name, path in [('Bandwidth', 'bandwidth'), ('CPU', 'cpu'),
+                             ('Memory', 'memory'), ('Instance Count', 'instance-count')]:
+              print('\n===', name, '===')
+              req = urllib.request.Request(
+                  f'https://api.render.com/v1/metrics/{path}?{qs}',
+                  headers={'Authorization': 'Bearer ' + os.environ['RENDER_API_KEY'],
+                           'Accept': 'application/json',
+                           'User-Agent': 'render-resource-monitor/1.0'})
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as response:
+                      data = json.load(response)
+                      print('HTTP:', response.status)
+              except urllib.error.HTTPError as exc:
+                  print('UNAVAILABLE: HTTP', exc.code, '(response body hidden)')
+                  continue
+              except Exception as exc:
+                  print('ERROR:', type(exc).__name__, '(details hidden)')
+                  continue
+              if not isinstance(data, list):
+                  print('ERROR: unexpected JSON root type:', type(data).__name__)
+                  continue
+              if not data:
+                  print('N/A: no series returned (not zero)')
+                  continue
+
+              units = collections.Counter(str(s.get('unit')) for s in data if isinstance(s, dict))
+              print('Series:', len(data), '| units:', dict(units))
+              grouped = collections.defaultdict(list)
+              invalid = 0
+              outside = 0
+              for series in data:
+                  if not isinstance(series, dict) or not isinstance(series.get('values'), list):
+                      invalid += 1
+                      continue
+                  key = labels_key(series)
+                  for point in series['values']:
+                      if not isinstance(point, dict):
+                          invalid += 1
+                          continue
+                      t = stamp(point.get('timestamp'))
+                      v = point.get('value')
+                      if t is None or isinstance(v, bool) or not isinstance(v, (int, float)):
+                          invalid += 1
+                          continue
+                      if not (float('-inf') < v < float('inf')):
+                          invalid += 1
+                          continue
+                      if t < start or t > now:
+                          outside += 1
+                          continue
+                      grouped[key].append((t, float(v)))
+
+              by_identity = {}
+              duplicate = 0
+              overlapping = collections.Counter()
+              for key, points in grouped.items():
+                  seen = {}
+                  for t, v in points:
+                      if t in seen:
+                          duplicate += 1
+                      else:
+                          seen[t] = v
+                      overlapping[t] += 1
+                  by_identity[key] = sorted(seen.items())
+              all_points = [(t, v) for pts in by_identity.values() for t, v in pts]
+              print('Valid points:', len(all_points), '| label groups:', len(by_identity))
+              print('Invalid points:', invalid, '| outside window:', outside,
+                    '| duplicates within labels:', duplicate)
+              print('Timestamps shared across label groups:',
+                    sum(1 for count in overlapping.values() if count > 1))
+              if not all_points:
+                  print('N/A: no valid measurement points')
+                  continue
+              values = [v for _, v in all_points]
+              latest_t = max(t for t, _ in all_points)
+              latest_values = [v for t, v in all_points if t == latest_t]
+              print('First observed:', display_time(min(t for t, _ in all_points)))
+              print('Latest observed:', display_time(latest_t),
+                    '| lag:', round((now - latest_t).total_seconds() / 60, 1), 'minutes')
+              print('Observation mean:', round(statistics.mean(values), 6),
+                    '| max:', round(max(values), 6))
+              if len(latest_values) == 1:
+                  print('Latest point:', round(latest_values[0], 6))
+              else:
+                  print('Latest timestamp has', len(latest_values),
+                        'values across labels; no single latest value inferred')
+
+              if name == 'Memory' and set(units) == {'bytes'}:
+                  print('Observation mean (MiB):', round(statistics.mean(values) / 1048576, 2))
+                  print('Maximum (MiB):', round(max(values) / 1048576, 2))
+                  if len(latest_values) == 1:
+                      print('Latest point (MiB):', round(latest_values[0] / 1048576, 2))
+              elif name == 'Bandwidth':
+                  print('Bandwidth unit is reported as "mb"; no MB/Mb conversion or summation performed.')
+              elif name == 'CPU':
+                  print('CPU values shown in API unit "cpu"; not interpreted as utilization percent.')
+              if len(by_identity) > 1:
+                  print('Multiple label groups: values are NOT summed across instances.')
+
+          print('\nReport complete. No credentials or label values printed. No database writes.')
+          PY
