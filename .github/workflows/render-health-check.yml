@@ -1,0 +1,73 @@
+name: Render Health Monitoring
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check Render health
+        shell: bash
+        env:
+          RENDER_URL: ${{ vars.RENDER_URL }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${RENDER_URL:-}" ]]; then
+            echo "::error::Repository variable RENDER_URL is not configured."
+            exit 1
+          fi
+
+          HEALTH_URL="${RENDER_URL%/}/healthz"
+          echo "Check time (Taiwan): $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "Endpoint: ${HEALTH_URL}"
+
+          metrics_file="$(mktemp)"
+          body_file="$(mktemp)"
+          trap 'rm -f "$metrics_file" "$body_file"' EXIT
+
+          if ! curl --silent --show-error --location \
+            --connect-timeout 20 --max-time 180 \
+            --output "$body_file" \
+            --write-out 'HTTP_STATUS=%{http_code}\nDNS_SECONDS=%{time_namelookup}\nCONNECT_SECONDS=%{time_connect}\nTLS_SECONDS=%{time_appconnect}\nTTFB_SECONDS=%{time_starttransfer}\nTOTAL_SECONDS=%{time_total}\n' \
+            "$HEALTH_URL" > "$metrics_file"; then
+            cat "$metrics_file"
+            echo "::error::Health request failed (network, TLS, redirect, or timeout)."
+            exit 1
+          fi
+
+          cat "$metrics_file"
+          http_status="$(sed -n 's/^HTTP_STATUS=//p' "$metrics_file")"
+          echo 'Response body:'
+          head -c 1000 "$body_file"
+          echo
+
+          if [[ "$http_status" != "200" ]]; then
+            echo "::error::Unexpected HTTP status: $http_status (expected 200)."
+            exit 1
+          fi
+
+          if ! python -m json.tool "$body_file" > /dev/null; then
+            echo "::error::Health endpoint returned invalid JSON."
+            exit 1
+          fi
+
+          if ! python - "$body_file" <<'PY'
+          import json
+          import sys
+          with open(sys.argv[1], encoding='utf-8') as f:
+              data = json.load(f)
+          sys.exit(0 if isinstance(data, dict) and data.get('status') == 'ok' else 1)
+          PY
+          then
+            echo "::error::Health JSON did not contain status=ok."
+            exit 1
+          fi
+
+          echo 'Health check passed.'
