@@ -1056,6 +1056,40 @@ def _startup_diagnostics_html():
     )
 
 
+
+
+def _health_data():
+    """Read external liveness-check history; do not modify monitoring jobs."""
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT checked_at, status, http_status, total_seconds, error_message
+            FROM health_checks ORDER BY checked_at DESC LIMIT 168
+        """)).mappings().all()
+    now = pd.Timestamp.now(tz="UTC")
+    history = []
+    for row in rows:
+        stamp = pd.Timestamp(row["checked_at"])
+        if stamp.tzinfo is None:
+            stamp = stamp.tz_localize("UTC")
+        stamp = stamp.tz_convert("Asia/Taipei")
+        history.append({
+            "time": stamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": str(row["status"] or "UNKNOWN").upper(),
+            "http": row["http_status"],
+            "seconds": float(row["total_seconds"]) if row["total_seconds"] is not None else None,
+            "error": str(row["error_message"] or ""),
+        })
+    latest = history[0] if history else None
+    if not rows:
+        state = "NO DATA"
+    else:
+        checked = pd.Timestamp(rows[0]["checked_at"])
+        if checked.tzinfo is None:
+            checked = checked.tz_localize("UTC")
+        state = "DELAYED" if (now - checked).total_seconds() > 90 * 60 else latest["status"]
+    return {"state": state, "latest": latest, "history": history,
+            "success_rate": round(100 * sum(r["status"] == "PASS" for r in history) / len(history), 1) if history else None}
+
 def _analytics(fragment=False):
     with engine.connect() as c:
         v = pd.read_sql_query(
@@ -1411,9 +1445,33 @@ def _analytics(fragment=False):
         .startup-top-marker {{ display: inline-block; margin-left: 6px; padding: 2px 5px;
             border-radius: 4px; background: #dbeafe; color: #1d4ed8; font-size: 11px; font-weight: 700; }}
         .startup-total {{ background: #e2e8f0; border-top: 2px solid #94a3b8; }}
+        .admin-tabs {{ display:flex; gap:6px; flex-wrap:wrap; margin:14px 0 18px; }}
+        .admin-tab {{ background:white; border:1px solid #cbd5e1; border-radius:7px;
+            padding:8px 15px; font-size:13px; cursor:pointer; color:#334155; }}
+        .admin-tab.active {{ background:#1d4ed8; color:white; border-color:#1d4ed8; }}
+        .admin-panel[hidden] {{ display:none !important; }}
+        .health-metrics {{ display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }}
+        .health-metric {{ background:white; border:1px solid #ddd; border-radius:10px;
+            padding:12px 16px; min-width:145px; flex:1; }}
+        .health-metric strong {{ display:block; font-size:20px; margin-top:6px; }}
+        .health-table-wrap {{ max-height:370px; overflow:auto; border:1px solid #ddd; border-radius:9px; }}
+        .health-table {{ border-collapse:collapse; width:100%; font-size:13px; background:white; }}
+        .health-table th,.health-table td {{ text-align:left; padding:9px; border-bottom:1px solid #e5e7eb; }}
+        .health-table th {{ background:#f1f5f9; position:sticky; top:0; }}
+        .health-plot {{ width:100%; height:240px; background:white; border:1px solid #ddd;
+            border-radius:10px; box-sizing:border-box; }}
+        .health-pass {{ color:#15803d; }} .health-fail {{ color:#b91c1c; }}
+        .health-delayed {{ color:#b45309; }}
     </style>
 
-    <h1>Site Analytics</h1>
+    <h1>Admin Console</h1>
+    <nav class="admin-tabs" aria-label="Admin sections">
+      <button type="button" class="admin-tab active" data-panel="analytics">Analytics</button>
+      <button type="button" class="admin-tab" data-panel="startup">Startup</button>
+      <button type="button" class="admin-tab" data-panel="health">Health</button>
+    </nav>
+    <div class="admin-panel" id="panel-analytics">
+      <h2>Site Analytics</h2>
 
     <p>Asia/Taipei · Visitor = Public IP</p>
 
@@ -1438,13 +1496,15 @@ def _analytics(fragment=False):
             </p>
         </div>
 
-        <!-- Right: Startup Diagnostics -->
-        <div class="analytics-history">
-
-            {_startup_diagnostics_html()}
-
-        </div>
-
+    </div>
+    </div>
+    <div class="admin-panel" id="panel-startup" hidden>
+      {_startup_diagnostics_html()}
+    </div>
+    <div class="admin-panel" id="panel-health" hidden>
+      <h2>System Health</h2>
+      <p class="note">External /healthz liveness checks · GitHub Actions · Neon history (up to 168 checks)</p>
+      <div id="health-content" aria-live="polite">Loading health checks…</div>
     </div>
 
     <script>
@@ -1514,7 +1574,76 @@ def _analytics(fragment=False):
                 busy = false;
             }}
         }}
+        const tabs = Array.from(document.querySelectorAll('.admin-tab'));
+        const panels = Array.from(document.querySelectorAll('.admin-panel'));
+        const healthContent = document.getElementById('health-content');
+        let healthBusy = false;
+        function escapeHtml(value) {{
+            return String(value == null ? '' : value).replace(/[&<>"']/g, c =>
+                ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+        }}
+        function renderHealth(data) {{
+            const latest = data.latest;
+            const state = data.state;
+            const cls = state === 'PASS' ? 'health-pass' :
+                state === 'DELAYED' ? 'health-delayed' : 'health-fail';
+            const time = latest ? latest.time + ' (Asia/Taipei)' : '—';
+            const duration = latest && latest.seconds != null ? latest.seconds.toFixed(3) + ' s' : '—';
+            const rate = data.success_rate == null ? '—' : data.success_rate.toFixed(1) + '%';
+            const metrics = `<div class="health-metrics">
+                <div class="health-metric">Current Status<strong class="${{cls}}">${{escapeHtml(state)}}</strong></div>
+                <div class="health-metric">Last Check<strong style="font-size:14px">${{escapeHtml(time)}}</strong></div>
+                <div class="health-metric">Response Time<strong>${{escapeHtml(duration)}}</strong></div>
+                <div class="health-metric">Pass Rate (loaded checks)<strong>${{escapeHtml(rate)}}</strong></div>
+                </div>`;
+            const history = data.history || [];
+            const valid = history.filter(r => r.seconds != null).slice().reverse();
+            let plot = '<p class="note">No response-time data yet.</p>';
+            if (valid.length) {{
+                const w = 900, h = 230, left = 56, right = 20, top = 18, bottom = 34;
+                const max = Math.max(0.1, ...valid.map(r => r.seconds)) * 1.1;
+                const x = i => left + i * (w-left-right) / Math.max(1, valid.length-1);
+                const y = v => top + (h-top-bottom) * (1-v/max);
+                const pts = valid.map((r,i) => `${{x(i).toFixed(1)}},${{y(r.seconds).toFixed(1)}}`).join(' ');
+                const dots = valid.map((r,i) => `<circle cx="${{x(i).toFixed(1)}}" cy="${{y(r.seconds).toFixed(1)}}" r="3" fill="${{r.status === 'PASS' ? '#2563eb' : '#dc2626'}}"><title>${{escapeHtml(r.time)}} · ${{r.seconds.toFixed(3)}} s · ${{escapeHtml(r.status)}}</title></circle>`).join('');
+                plot = `<svg class="health-plot" viewBox="0 0 ${{w}} ${{h}}" role="img" aria-label="Response time history in seconds">
+                    <line x1="${{left}}" y1="${{h-bottom}}" x2="${{w-right}}" y2="${{h-bottom}}" stroke="#94a3b8"/>
+                    <line x1="${{left}}" y1="${{top}}" x2="${{left}}" y2="${{h-bottom}}" stroke="#94a3b8"/>
+                    <text x="8" y="${{top+5}}" font-size="12" fill="#475569">${{max.toFixed(2)}} s</text>
+                    <text x="25" y="${{h-bottom}}" font-size="12" fill="#475569">0</text>
+                    <text x="${{left}}" y="${{h-8}}" font-size="12" fill="#475569">Oldest</text>
+                    <text x="${{w-right}}" y="${{h-8}}" text-anchor="end" font-size="12" fill="#475569">Latest</text>
+                    <polyline fill="none" stroke="#2563eb" stroke-width="2" points="${{pts}}"/>${{dots}}</svg>`;
+            }}
+            const rows = history.map(r => `<tr><td>${{escapeHtml(r.time)}}</td><td>${{escapeHtml(r.status)}}</td><td>${{escapeHtml(r.http)}}</td><td>${{r.seconds == null ? '—' : r.seconds.toFixed(3) + ' s'}}</td><td>${{escapeHtml(r.error)}}</td></tr>`).join('');
+            healthContent.innerHTML = metrics + '<h3>Response Time History</h3>' + plot +
+                '<h3>Check History</h3><div class="health-table-wrap"><table class="health-table"><thead><tr><th>Time (TW)</th><th>Status</th><th>HTTP</th><th>Duration</th><th>Error</th></tr></thead><tbody>' +
+                (rows || '<tr><td colspan="5">No checks recorded yet.</td></tr>') + '</tbody></table></div>';
+        }}
+        async function refreshHealth() {{
+            if (healthBusy || document.hidden) return;
+            healthBusy = true;
+            try {{
+                const response = await fetch('/admin/health-data', {{cache:'no-store', credentials:'same-origin'}});
+                if (!response.ok) throw new Error('Health refresh HTTP ' + response.status);
+                renderHealth(await response.json());
+            }} catch (error) {{
+                healthContent.textContent = 'Health data unavailable: ' + error.message;
+            }} finally {{ healthBusy = false; }}
+        }}
+        tabs.forEach(tab => tab.addEventListener('click', () => {{
+            const target = tab.dataset.panel;
+            tabs.forEach(t => {{
+                t.classList.toggle('active', t === tab);
+                t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
+            }});
+            panels.forEach(p => p.hidden = p.id !== 'panel-' + target);
+            if (target === 'health') refreshHealth();
+        }}));
         setInterval(refreshAnalytics, refreshMs);
+        setInterval(() => {{
+            if (!document.getElementById('panel-health').hidden) refreshHealth();
+        }}, refreshMs);
     }})();
     </script>
 
@@ -1921,6 +2050,19 @@ def analytics_data():
     if not _check_auth():
         return _auth_required()
     response = jsonify(_analytics(fragment=True))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+@server.get("/admin/health-data")
+def admin_health_data():
+    if not _check_auth():
+        return _auth_required()
+    try:
+        response = jsonify(_health_data())
+    except Exception as exc:
+        server.logger.warning("Admin health data unavailable: %s", exc)
+        response = jsonify(error="Health check history is temporarily unavailable")
+        response.status_code = 503
     response.headers["Cache-Control"] = "no-store"
     return response
 
