@@ -2534,7 +2534,8 @@ app.layout = html.Div([
         html.P("Licensing references reviewed: 2026-10-23 · Outstanding checks: Windy storage permission; Open-Meteo commercial API plan; Copernicus product DOIs; deployed dependency inventory.",
                style={"fontSize": "12px", "color": "#94a3b8"}),
     ], id="licenses-page", style={"display": "none", "padding": "16px",
-        "backgroundColor": "#203249", "borderRadius": "8px", "lineHeight": "1.6"})
+        "backgroundColor": "#203249", "borderRadius": "8px", "lineHeight": "1.6",
+        "textAlign": "justify"})
 ], className="ocean-app")
 
 @app.callback(
