@@ -2760,7 +2760,7 @@ app.layout = html.Div([
     # Main Dashboard footer only. The standalone /admin route is unchanged.
     html.Div([
         html.Div("© 2026 Ali Chang · Built for internal project tracking"),
-        html.A("ali.chang@iovtec.com.tw", href="mailto:ali.chang@iovtec.com.tw",
+        html.A("Technical Contact: ali.chang@iovtec.com.tw", href="mailto:ali.chang@iovtec.com.tw",
                style={"color": "#94a3b8", "textDecoration": "none"})
     ], style={"textAlign": "center", "fontSize": "11px", "color": "#94a3b8",
               "lineHeight": "1.8", "padding": "20px 8px 10px", "marginTop": "12px"})
