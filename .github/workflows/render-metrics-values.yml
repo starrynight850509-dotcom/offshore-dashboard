@@ -1,4 +1,4 @@
-name: Render Metrics Values Inspection
+name: Render Metrics Units Inspection
 
 on:
   workflow_dispatch:
@@ -47,7 +47,7 @@ jobs:
           }
           print('Taiwan check time:', (now + dt.timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S'))
           print('Time range:', start.isoformat(), 'to', now.isoformat())
-          print('Inspecting JSON shapes and numeric/time samples only; no full API response bodies.')
+          print('Inspecting unit, label keys, and point counts; no full API response bodies.')
 
           def shape(value):
               if isinstance(value, dict):
@@ -56,26 +56,32 @@ jobs:
                   return f'array[{len(value)}]'
               return type(value).__name__
 
-          def safe_fields(obj, prefix='', depth=0):
-              """Print only numeric values and time-like strings, never arbitrary text fields."""
-              if depth > 5:
-                  return []
-              out = []
-              if isinstance(obj, dict):
-                  for key, val in list(obj.items())[:30]:
-                      path = f'{prefix}.{key}' if prefix else str(key)
-                      if isinstance(val, bool):
-                          continue
-                      if isinstance(val, (int, float)):
-                          out.append(f'{path}={val}')
-                      elif isinstance(val, str) and any(x in str(key).lower() for x in ('time', 'date', 'timestamp')):
-                          out.append(f'{path}={val[:48]}')
-                      elif isinstance(val, (dict, list)):
-                          out.extend(safe_fields(val, path, depth + 1))
-              elif isinstance(obj, list):
-                  for i, val in enumerate(obj[:2]):
-                      out.extend(safe_fields(val, f'{prefix}[{i}]', depth + 1))
-              return out[:35]
+          def safe_scalar(value):
+              """Limit displayed API metadata to short printable scalars."""
+              if value is None or isinstance(value, (bool, int, float)):
+                  return repr(value)
+              if isinstance(value, str):
+                  return repr(''.join(ch for ch in value if ch.isprintable())[:80])
+              return '<non-scalar>'
+
+          def inspect_series(item, tag):
+              if not isinstance(item, dict):
+                  print(f'  {tag}: unexpected item type={type(item).__name__}')
+                  return
+              print(f'  {tag} unit:', safe_scalar(item.get('unit')))
+              labels = item.get('labels')
+              if isinstance(labels, dict):
+                  print(f'  {tag} label keys:', ', '.join(sorted(map(str, labels.keys()))) or '(none)')
+                  for key, value in list(sorted(labels.items(), key=lambda pair: str(pair[0])))[:10]:
+                      print(f'    {str(key)[:50]}:', safe_scalar(value))
+              else:
+                  print(f'  {tag} labels type:', type(labels).__name__)
+              values = item.get('values')
+              print(f'  {tag} measurement points:', len(values) if isinstance(values, list) else 'N/A')
+              if isinstance(values, list) and values:
+                  point = values[0]
+                  if isinstance(point, dict):
+                      print(f'  {tag} first point keys:', ', '.join(sorted(map(str, point.keys()))))
 
           for label, endpoint in endpoints.items():
               url = f'https://api.render.com/v1/metrics/{endpoint}?{params}'
@@ -105,13 +111,10 @@ jobs:
                       samples.append(('last', payload[-1]))
               else:
                   samples = [('root', payload)]
+              total_points = sum(len(item.get('values', [])) for item in payload
+                                 if isinstance(item, dict) and isinstance(item.get('values'), list)) if isinstance(payload, list) else 'N/A'
+              print('Total measurement points across series:', total_points)
               for tag, sample in samples:
-                  print(f'{tag} item:', shape(sample))
-                  fields = safe_fields(sample)
-                  if fields:
-                      for field in fields:
-                          print('  ', field)
-                  else:
-                      print('  No numeric or time-like fields found in sample.')
+                  inspect_series(sample, tag)
           print('\nInspection complete. No data was written.')
           PY
