@@ -1,3 +1,67 @@
+name: Render Health Monitoring
+
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RENDER_URL: ${{ vars.RENDER_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Install PostgreSQL client
+        run: python -m pip install --quiet "psycopg[binary]>=3.2,<4"
+
+      - name: Check health and save result
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          import psycopg
+
+          started = dt.datetime.now(dt.timezone.utc)
+          url = os.getenv('RENDER_URL', '').rstrip('/')
+          database_url = os.getenv('DATABASE_URL', '')
+          if not url or not url.startswith('https://'):
+              print('::error::RENDER_URL must be a configured HTTPS URL.')
+              sys.exit(1)
+          if not database_url:
+              print('::error::GitHub secret DATABASE_URL is missing.')
+              sys.exit(1)
+
+          endpoint = url + '/healthz'
+          print('Check time (Taiwan):', started.astimezone(dt.timezone(dt.timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S UTC+8'))
+          print('Endpoint:', endpoint)
+          metrics = {}
+          status = 'FAIL'
+          error = None
+          with tempfile.NamedTemporaryFile() as f:
+              cmd = ['curl', '--silent', '--show-error', '--location',
+                     '--connect-timeout', '20', '--max-time', '180',
+                     '--output', f.name,
+                     '--write-out', 'HTTP_STATUS=%{http_code}\nDNS_SECONDS=%{time_namelookup}\nCONNECT_SECONDS=%{time_connect}\nTLS_SECONDS=%{time_appconnect}\nTTFB_SECONDS=%{time_starttransfer}\nTOTAL_SECONDS=%{time_total}\n',
+                     endpoint]
+              try:
+                  result = subprocess.run(cmd, capture_output=True, text=True, timeout=190)
+                  for line in result.stdout.splitlines():
+                      if '=' in line:
+                          key, value = line.split('=', 1)
+                          metrics[key] = value
+                  if result.returncode != 0:
+                      error = f'curl failed (exit code {result.returncode}); {result.stderr.strip()[:300]}'
                   elif metrics.get('HTTP_STATUS') != '200':
                       error = f"Unexpected HTTP status {metrics.get('HTTP_STATUS', 'unknown')} (expected 200)"
                   else:
@@ -48,4 +112,3 @@
               sys.exit(1)
           print('Health check passed.')
           PY
-
