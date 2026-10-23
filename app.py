@@ -2408,7 +2408,7 @@ app.index_string = """<!DOCTYPE html>
     // Gantt overlay controller: intentionally independent of Dash's callback registry.
     (function () {
       const filterIds = new Set(['project-filter','personnel-filter','task-filter','cat-filter','date-picker']);
-      let active = false, token = 0, started = 0, timeout = null, doneTimer = null, fallbackTimer = null;
+      let active = false, token = 0, started = 0, timeout = null, doneTimer = null;
       let lastFigure = null, plotNode = null;
       let updateWatcher = null, observedLoading = false, observedRender = false;
       function stopWatcher() { if(updateWatcher) { clearInterval(updateWatcher); updateWatcher=null; } }
@@ -2443,7 +2443,7 @@ app.index_string = """<!DOCTYPE html>
       function hide(id) {
         if (id !== token) return;
         active = false;
-        clearTimeout(timeout); clearTimeout(doneTimer); clearTimeout(fallbackTimer); stopWatcher();
+        clearTimeout(timeout); clearTimeout(doneTimer); stopWatcher();
         const overlay = get('schedule-filter-loading');
         if (overlay) { overlay.style.display='none'; overlay.style.pointerEvents='none'; }
       }
@@ -2451,7 +2451,7 @@ app.index_string = """<!DOCTYPE html>
         const overlay = get('schedule-filter-loading');
         if (!overlay) return;
         token++; const id=token; active=true; started=performance.now();
-        clearTimeout(timeout); clearTimeout(doneTimer); clearTimeout(fallbackTimer); stopWatcher();
+        clearTimeout(timeout); clearTimeout(doneTimer); stopWatcher();
         const graph = get('gantt-chart');
         const initialSignature = chartSignature(graph);
         observedLoading = isLoading(graph); observedRender = false;
@@ -2471,11 +2471,6 @@ app.index_string = """<!DOCTYPE html>
         if(caption) caption.textContent='Updating Gantt Chart…';
         if(bar) bar.style.display='block';
         position();
-        // Plotly's afterplot event is not guaranteed to fire for every Dash
-        // figure replacement. A bounded fallback prevents a stuck overlay.
-        fallbackTimer=setTimeout(function(){
-          if(id===token && active) complete(false);
-        }, 2800);
         timeout=setTimeout(function(){
           if(id!==token || !active) return;
           overlay.dataset.phase='failed';
@@ -2486,7 +2481,7 @@ app.index_string = """<!DOCTYPE html>
       }
       function complete(confirmed = true) {
         if(!active) return;
-        const id=token; clearTimeout(timeout); clearTimeout(doneTimer); clearTimeout(fallbackTimer); stopWatcher();
+        const id=token; clearTimeout(timeout); clearTimeout(doneTimer); stopWatcher();
         doneTimer=setTimeout(function(){
           if(id!==token) return;
           const overlay=get('schedule-filter-loading'); if(!overlay) return;
