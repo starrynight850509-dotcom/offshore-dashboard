@@ -1,4 +1,4 @@
-name: Render Billing Monitor v2.0
+name: Render Billing Monitor v2.1
 
 on:
   schedule:
@@ -19,6 +19,9 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+      BILLING_INSTANCE_HOURS: ${{ vars.BILLING_INSTANCE_HOURS }}
+      BILLING_PIPELINE_MINUTES: ${{ vars.BILLING_PIPELINE_MINUTES }}
+      BILLING_OBSERVED_AT: ${{ vars.BILLING_OBSERVED_AT }}
     steps:
       - name: Unified Render diagnostics (read only)
         shell: bash
@@ -48,7 +51,7 @@ jobs:
           headers = {
               'Authorization': 'Bearer ' + os.environ['RENDER_API_KEY'],
               'Accept': 'application/json',
-              'User-Agent': 'render-billing-monitor/2.0',
+              'User-Agent': 'render-billing-monitor/2.1',
           }
           def fetch(url):
               request = urllib.request.Request(url, headers=headers)
@@ -462,6 +465,53 @@ jobs:
               'services': {'quota': 25, 'unit': 'services', 'official_usage': None},
               'custom_domains': {'quota': 2, 'unit': 'domains', 'official_usage': None},
           }
+          # Manually transcribed Billing page values; never mislabel as API readings.
+          # All three variables must be present. Month mismatch means stale data.
+          manual = {'source': 'RENDER_BILLING_UI_MANUAL', 'status': 'UNAVAILABLE',
+                    'observed_at_utc': None, 'values': {}, 'reason': None}
+          observed_raw = os.getenv('BILLING_OBSERVED_AT', '').strip()
+          hours_raw = os.getenv('BILLING_INSTANCE_HOURS', '').strip()
+          minutes_raw = os.getenv('BILLING_PIPELINE_MINUTES', '').strip()
+          if not any((observed_raw, hours_raw, minutes_raw)):
+              manual['reason'] = 'Set all three GitHub variables to enable manual reconciliation'
+          elif not all((observed_raw, hours_raw, minutes_raw)):
+              manual['status'] = 'INCOMPLETE'
+              manual['reason'] = 'All three GitHub variables are required'
+          else:
+              observed = parse_time(observed_raw)
+              try:
+                  hours, minutes = float(hours_raw), float(minutes_raw)
+                  if not all(math.isfinite(v) and v >= 0 for v in (hours, minutes)):
+                      raise ValueError('non-finite or negative value')
+                  if observed is None:
+                      raise ValueError('invalid observed timestamp')
+                  manual['observed_at_utc'] = observed.isoformat()
+                  manual['values'] = {'instance_hours': hours, 'pipeline_minutes': minutes}
+                  if observed > now + dt.timedelta(minutes=5):
+                      manual['status'] = 'INVALID'
+                      manual['reason'] = 'Observation timestamp is in the future'
+                  elif (observed.year, observed.month) != (now.year, now.month):
+                      manual['status'] = 'STALE_MONTH'
+                      manual['reason'] = 'Observation belongs to a different UTC billing month; check Render billing cycle'
+                  elif now - observed > dt.timedelta(hours=48):
+                      manual['status'] = 'STALE'
+                      manual['reason'] = 'Manual reading is more than 48 hours old'
+                  else:
+                      manual['status'] = 'MANUAL_VERIFIED_SOURCE'
+                      manual['reason'] = 'Transcribed from Render Billing UI; not verified by API'
+                      for key, value in manual['values'].items():
+                          report['billing'][key] = {
+                              'status': 'MANUAL_UI', 'usage': value,
+                              'observed_at_utc': observed.isoformat(),
+                              'reason': 'Manually entered Render Billing UI reading; not API live data'}
+                          report['billing_targets'][key]['official_usage'] = value
+                          report['billing_targets'][key]['source'] = 'MANUAL_UI'
+              except (ValueError, OverflowError):
+                  manual['status'] = 'INVALID'
+                  manual['reason'] = 'Invalid nonnegative number or ISO-8601 timestamp'
+          report['manual_billing_reconciliation'] = manual
+          print('\n=== Manual Billing UI Reconciliation ===')
+          print(json.dumps(manual, ensure_ascii=False, sort_keys=True))
           print('Billing targets recorded; quotas are reference limits, not live quota API responses.')
 
           print('\n=== Billing Usage (official values only) ===')
