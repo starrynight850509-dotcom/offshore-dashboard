@@ -2771,9 +2771,22 @@ app.layout = html.Div([
         ], style={"flex": "4", "minWidth": 0, "textAlign": "left"}),
         html.Div([
             html.Div("Overall Completed (All Years)", style={"fontSize": "12px", "color": "#cbd5e1"}),
-            html.Div("—", id="overall-progress-percent", style={
-                "fontSize": "26px", "fontWeight": "700", "color": "white", "lineHeight": "1.25"
-            }),
+            html.Div([
+                html.Svg([
+                    html.Circle(cx="38", cy="38", r="31", fill="none",
+                                stroke="#46546a", strokeWidth="6"),
+                    html.Circle(cx="38", cy="38", r="31", fill="none",
+                                stroke="#55c5ef", strokeWidth="6", strokeLinecap="round",
+                                transform="rotate(-90 38 38)",
+                                strokeDasharray="0 194.78", id="overall-progress-ring",
+                                style={"transition": "stroke-dasharray 0.8s ease"})
+                ], viewBox="0 0 76 76", style={"width": "76px", "height": "76px"}),
+                html.Div("—", id="overall-progress-percent", style={
+                    "position": "absolute", "top": "50%", "left": "50%",
+                    "transform": "translate(-50%, -50%)", "whiteSpace": "nowrap",
+                    "fontSize": "17px", "fontWeight": "700", "color": "white"
+                })
+            ], style={"position": "relative", "width": "76px", "height": "76px"}),
             html.Div("— / — Jackets", id="overall-progress-count", style={
                 "fontSize": "12px", "color": "#cbd5e1"
             })
@@ -4462,6 +4475,7 @@ def cached_completion_counts(schedule_version):
 
 @app.callback(
     Output("overall-progress-percent", "children"),
+    Output("overall-progress-ring", "strokeDasharray"),
     Output("overall-progress-count", "children"),
     Output("project-completed-jackets", "children"),
     Output("initial-progress-check", "children"),
@@ -4470,7 +4484,7 @@ def cached_completion_counts(schedule_version):
 )
 def update_overall_progress(schedule_version, selected_project):
     if schedule_version is None:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
     completed, total, project_2026_completed = cached_completion_counts(schedule_version)
     percentage = (100 * completed / total) if total else 0
     if selected_project == "2026":
@@ -4481,7 +4495,10 @@ def update_overall_progress(schedule_version, selected_project):
         latest_df, _, _ = load_schedule_cached(schedule_version)
         year_df = latest_df.loc[latest_df["Date"].dt.year.eq(int(selected_project))]
         project_completed, _ = calculate_overall_tower_completion(year_df, cached_master_towers())
-    return f"{percentage:.1f}%", f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}", "ready"
+    circumference = 2 * np.pi * 31
+    arc = circumference * max(0, min(100, percentage)) / 100
+    ring_dash = f"{arc:.2f} {circumference:.2f}"
+    return f"{percentage:.1f}%", ring_dash, f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}", "ready"
 
 #%% Overview project scope (independent from Schedule filters)
 @app.callback(
