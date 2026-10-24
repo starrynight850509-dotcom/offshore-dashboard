@@ -1,4 +1,4 @@
-name: Render Billing Monitor v1.1
+name: Render Billing Monitor v1.2
 
 on:
   schedule:
@@ -183,21 +183,43 @@ jobs:
           breakdown = {'status': 'ERROR', 'http_status': status,
                        'window_start_utc': month_start.isoformat(),
                        'window_end_utc': now.isoformat(), 'is_billing_total': False}
-          if status == 200 and isinstance(payload, dict):
-              series = payload.get('data')
+          if status == 200:
+              breakdown['root_type'] = type(payload).__name__
+              if isinstance(payload, list):
+                  series = payload
+                  breakdown['root_length'] = len(payload)
+              elif isinstance(payload, dict):
+                  breakdown['response_keys'] = sorted(str(k)[:80] for k in payload.keys())[:30]
+                  breakdown['field_types'] = {
+                      str(k)[:80]: type(v).__name__
+                      for k, v in list(payload.items())[:30]
+                  }
+                  series = next((payload[k] for k in ('data', 'series', 'results', 'items')
+                                 if isinstance(payload.get(k), list)), None)
+                  if series is None:
+                      breakdown['status'] = 'UNEXPECTED_SHAPE'
+              else:
+                  series = None
+                  breakdown['status'] = 'UNEXPECTED_SHAPE'
               if isinstance(series, list):
                   breakdown['status'] = 'PASS' if series else 'NO_DATA'
                   breakdown['series_count'] = len(series)
+                  breakdown['element_types'] = sorted({type(x).__name__ for x in series})
+                  sample = next((x for x in series if isinstance(x, dict)), None)
+                  if sample is not None:
+                      breakdown['sample_keys'] = sorted(str(k)[:80] for k in sample.keys())[:30]
+                      breakdown['sample_field_types'] = {
+                          str(k)[:80]: type(v).__name__
+                          for k, v in list(sample.items())[:30]
+                      }
                   breakdown['point_count'] = sum(
-                      len(s.get('values', [])) for s in series
-                      if isinstance(s, dict) and isinstance(s.get('values'), list)
+                      len(item.get('values', [])) for item in series
+                      if isinstance(item, dict) and isinstance(item.get('values'), list)
                   )
                   breakdown['units'] = sorted({
-                      str(s.get('unit')) for s in series if isinstance(s, dict)
+                      str(item.get('unit'))[:30] for item in series
+                      if isinstance(item, dict) and item.get('unit') is not None
                   })
-              else:
-                  breakdown['status'] = 'UNEXPECTED_SHAPE'
-                  breakdown['response_keys'] = sorted(payload.keys())[:20]
           elif status in (401, 403, 404):
               breakdown['status'] = 'UNAVAILABLE'
           if error:
@@ -208,6 +230,7 @@ jobs:
                 '| series:', breakdown.get('series_count'),
                 '| points:', breakdown.get('point_count'),
                 '| units:', breakdown.get('units'))
+          print('Structure:', {k: breakdown[k] for k in ('root_type', 'root_length', 'response_keys', 'field_types', 'element_types', 'sample_keys', 'sample_field_types') if k in breakdown})
 
           print('\n=== Billing Usage (official values only) ===')
           for name, item in report['billing'].items():
