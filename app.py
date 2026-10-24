@@ -2102,7 +2102,11 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026"):
             html.Td("" if pd.isna(r.get("Pilot")) else r["Pilot"]),
             html.Td("" if pd.isna(r.get("Tether Manager")) else r["Tether Manager"]),
             html.Td("" if pd.isna(r.get("Assistant")) else r["Assistant"]),
-            html.Td("" if pd.isna(r.get("Remark")) else r["Remark"]),
+            html.Td(html.Div(
+                "" if pd.isna(r.get("Remark")) else str(r["Remark"]),
+                style={"overflowX": "auto", "overflowY": "hidden", "whiteSpace": "nowrap",
+                       "maxWidth": "100%", "width": "100%", "boxSizing": "border-box"}
+            )),
         ], style={"backgroundColor": "#eff6ff", "borderLeft": "3px solid #3b82f6"} if is_today else {}))
 
     headers = ["Date", "Task", "Category", "Supervisor", "Pilot",
@@ -2116,13 +2120,17 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026"):
         }),
         html.Div([
             html.Table([
+                html.Colgroup([
+                    html.Col(style={"width": width}) for width in
+                    ["115px", "105px", "125px", "115px", "115px", "135px", "115px", "260px"]
+                ]),
                 html.Thead(html.Tr([html.Th(name) for name in headers])),
                 html.Tbody(rows if rows else [html.Tr([
                     html.Td("No tasks for the selected project.", colSpan=len(headers),
                             style={"color": "#6b7280", "padding": "12px"})
                 ])])
             ], className="ocean-upcoming-table", style={
-                "width": "max-content", "minWidth": "100%", "tableLayout": "auto",
+                "width": "1085px", "minWidth": "1085px", "tableLayout": "fixed",
                 "whiteSpace": "nowrap", "textAlign": "center",
                 "borderCollapse": "separate", "borderSpacing": "0", "fontSize": "12px"
             })
