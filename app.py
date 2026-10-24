@@ -2778,15 +2778,15 @@ app.layout = html.Div([
                     "transition": "background 0.8s ease"
                 }),
                 html.Div(style={
-                    "position": "absolute", "inset": "6px", "borderRadius": "50%",
+                    "position": "absolute", "inset": "5px", "borderRadius": "50%",
                     "backgroundColor": "#203149"
                 }),
                 html.Div("—", id="overall-progress-percent", style={
                     "position": "absolute", "top": "50%", "left": "50%",
                     "transform": "translate(-50%, -50%)", "whiteSpace": "nowrap",
-                    "fontSize": "17px", "fontWeight": "700", "color": "white"
+                    "fontSize": "15px", "fontWeight": "700", "color": "white"
                 })
-            ], style={"position": "relative", "width": "76px", "height": "76px"}),
+            ], style={"position": "relative", "width": "56px", "height": "56px"}),
             html.Div("— / — Jackets", id="overall-progress-count", style={
                 "fontSize": "12px", "color": "#cbd5e1"
             })
