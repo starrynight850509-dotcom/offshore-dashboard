@@ -1,4 +1,4 @@
-name: Render Billing Monitor v1.0
+name: Render Billing Monitor v1.1
 
 on:
   schedule:
@@ -48,7 +48,7 @@ jobs:
           headers = {
               'Authorization': 'Bearer ' + os.environ['RENDER_API_KEY'],
               'Accept': 'application/json',
-              'User-Agent': 'render-billing-monitor/1.0',
+              'User-Agent': 'render-billing-monitor/1.1',
           }
           def fetch(url):
               request = urllib.request.Request(url, headers=headers)
@@ -169,6 +169,45 @@ jobs:
                     '| units', result.get('units', {}), '| labels', list(result.get('label_fields', {})))
               if error:
                   print('  Error:', error)
+
+          # Monthly bandwidth-source diagnostic: metrics only, never billed totals.
+          month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+          monthly_params = urllib.parse.urlencode({
+              'resource': service_id,
+              'startTime': month_start.strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'endTime': now.strftime('%Y-%m-%dT%H:%M:%SZ'),
+          })
+          status, payload, error = fetch(
+              'https://api.render.com/v1/metrics/bandwidth-sources?' + monthly_params
+          )
+          breakdown = {'status': 'ERROR', 'http_status': status,
+                       'window_start_utc': month_start.isoformat(),
+                       'window_end_utc': now.isoformat(), 'is_billing_total': False}
+          if status == 200 and isinstance(payload, dict):
+              series = payload.get('data')
+              if isinstance(series, list):
+                  breakdown['status'] = 'PASS' if series else 'NO_DATA'
+                  breakdown['series_count'] = len(series)
+                  breakdown['point_count'] = sum(
+                      len(s.get('values', [])) for s in series
+                      if isinstance(s, dict) and isinstance(s.get('values'), list)
+                  )
+                  breakdown['units'] = sorted({
+                      str(s.get('unit')) for s in series if isinstance(s, dict)
+                  })
+              else:
+                  breakdown['status'] = 'UNEXPECTED_SHAPE'
+                  breakdown['response_keys'] = sorted(payload.keys())[:20]
+          elif status in (401, 403, 404):
+              breakdown['status'] = 'UNAVAILABLE'
+          if error:
+              breakdown['error'] = error
+          report['bandwidth_sources_month_to_date'] = breakdown
+          print('\n=== Monthly Bandwidth Sources (NOT Billing) ===')
+          print('Status:', breakdown['status'], '| HTTP:', status,
+                '| series:', breakdown.get('series_count'),
+                '| points:', breakdown.get('point_count'),
+                '| units:', breakdown.get('units'))
 
           print('\n=== Billing Usage (official values only) ===')
           for name, item in report['billing'].items():
