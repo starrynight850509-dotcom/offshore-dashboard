@@ -1,4 +1,4 @@
-name: Render Billing Monitor v1.5
+name: Render Billing Monitor v2.0
 
 on:
   schedule:
@@ -48,7 +48,7 @@ jobs:
           headers = {
               'Authorization': 'Bearer ' + os.environ['RENDER_API_KEY'],
               'Accept': 'application/json',
-              'User-Agent': 'render-billing-monitor/1.4',
+              'User-Agent': 'render-billing-monitor/2.0',
           }
           def fetch(url):
               request = urllib.request.Request(url, headers=headers)
@@ -382,6 +382,87 @@ jobs:
           print('Aggregation assessment:', json.dumps(breakdown.get('aggregation_assessment', {}), ensure_ascii=False, sort_keys=True))
           for item in breakdown.get('series_diagnostics', []):
               print('Series diagnostics:', json.dumps(item, ensure_ascii=False, sort_keys=True))
+
+          # Workspace inventory: public API, all pages, no guessing if incomplete.
+          # Render lists service resources as {service: {...}, cursor: ...}.
+          def paged_items(path, query=None):
+              items, cursor, seen = [], None, set()
+              for _ in range(100):
+                  args = dict(query or {})
+                  args['limit'] = 100
+                  if cursor:
+                      args['cursor'] = cursor
+                  url = 'https://api.render.com/v1/' + path + '?' + urllib.parse.urlencode(args)
+                  code, data, err = fetch(url)
+                  if code != 200 or not isinstance(data, list):
+                      return None, {'status': 'ERROR', 'http_status': code, 'reason': err or 'Unexpected response shape'}
+                  items.extend(data)
+                  if not data:
+                      return items, {'status': 'PASS', 'pages_complete': True}
+                  next_cursor = data[-1].get('cursor') if isinstance(data[-1], dict) else None
+                  if not next_cursor:
+                      if len(data) == 100:
+                          return None, {'status': 'INCOMPLETE', 'reason': 'Full page without cursor; cannot verify completeness'}
+                      return items, {'status': 'PASS', 'pages_complete': True}
+                  if next_cursor in seen:
+                      return None, {'status': 'INCOMPLETE', 'reason': 'Repeated pagination cursor'}
+                  seen.add(next_cursor)
+                  cursor = next_cursor
+              return None, {'status': 'INCOMPLETE', 'reason': 'Page safety limit reached'}
+
+          owner_id = service.get('ownerId') if isinstance(service, dict) else None
+          if not owner_id:
+              report['inventory'] = {'status': 'UNAVAILABLE', 'reason': 'Service response has no ownerId; workspace not verified'}
+          else:
+              entries, scan = paged_items('services', {'ownerId': owner_id, 'includePreviews': 'false'})
+              inventory = {'status': scan['status'], 'scope': 'ownerId', 'owner_id': owner_id,
+                           'include_previews': False, 'details': scan}
+              if entries is not None:
+                  services = [e.get('service') for e in entries if isinstance(e, dict) and isinstance(e.get('service'), dict)]
+                  if len(services) != len(entries) or any(s.get('ownerId') != owner_id for s in services):
+                      inventory['status'] = 'INCOMPLETE'
+                      inventory['reason'] = 'Unrecognized service item or owner mismatch'
+                  else:
+                      inventory['service_count'] = len(services)
+                      inventory['service_ids'] = [s['id'] for s in services if isinstance(s.get('id'), str)]
+                      inventory['service_quota_reference'] = 25
+                      inventory['service_usage_percent_reference'] = round(100 * len(services) / 25, 4)
+                      report['billing']['service_quota'] = {
+                          'status': 'API_INVENTORY_NOT_BILLING', 'count': len(services),
+                          'reference_quota': 25, 'reason': 'All accessible non-preview services in selected workspace; billing count not independently verified'}
+                      domain_count, domain_errors = 0, []
+                      for s in services:
+                          sid = s.get('id')
+                          if not sid:
+                              domain_errors.append('Missing service ID')
+                              continue
+                          domains, result = paged_items('services/' + urllib.parse.quote(sid, safe='') + '/custom-domains')
+                          if domains is None:
+                              domain_errors.append({'service_id': sid, 'status': result['status'], 'http_status': result.get('http_status')})
+                          else:
+                              domain_count += len(domains)
+                      inventory['custom_domains'] = {
+                          'status': 'PASS' if not domain_errors else 'INCOMPLETE',
+                          'count': domain_count if not domain_errors else None,
+                          'reference_quota': 2, 'errors': domain_errors}
+                      if not domain_errors:
+                          report['billing']['custom_domains'] = {
+                              'status': 'API_INVENTORY_NOT_BILLING', 'count': domain_count,
+                              'reference_quota': 2, 'reason': 'Count from all accessible non-preview services; billing equivalence unverified'}
+              report['inventory'] = inventory
+          print('\n=== Workspace Inventory (NOT Billing) ===')
+          print(json.dumps(report['inventory'], ensure_ascii=False, sort_keys=True))
+
+          # Other official values cannot be inferred from service uptime or deploy durations.
+          # Keep explicit limits and status in one report, without fabricating usage.
+          report['billing_targets'] = {
+              'instance_hours': {'quota': 750, 'unit': 'hours', 'official_usage': None},
+              'bandwidth': {'quota': 5, 'unit': 'GB', 'official_usage': None},
+              'pipeline_minutes': {'quota': 500, 'unit': 'minutes', 'official_usage': None},
+              'services': {'quota': 25, 'unit': 'services', 'official_usage': None},
+              'custom_domains': {'quota': 2, 'unit': 'domains', 'official_usage': None},
+          }
+          print('Billing targets recorded; quotas are reference limits, not live quota API responses.')
 
           print('\n=== Billing Usage (official values only) ===')
           for name, item in report['billing'].items():
