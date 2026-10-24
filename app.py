@@ -2082,6 +2082,18 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026", visibl
     # Sort by the task's displayed Start date, most recent first.
     tasks = tasks.sort_values(["Start", "Task"], ascending=[False, True], na_position="last")
 
+    # Compare each inspection with the preceding recorded inspection for the same tower.
+    # Use the full selected history before applying the 30-row display limit.
+    inspection_mask = tasks["Category"].fillna("").astype(str).str.strip().str.casefold().eq("inspection")
+    inspection_history = tasks.loc[inspection_mask].copy()
+    inspection_history["_progress_number"] = pd.to_numeric(inspection_history["Progress"], errors="coerce")
+    inspection_history = inspection_history.sort_values(["Start", "Date"], kind="stable")
+    inspection_history["_previous_progress"] = (
+        inspection_history.groupby("Task", dropna=False)["_progress_number"]
+        .transform(lambda values: values.ffill().shift(1))
+    )
+    previous_progress = inspection_history["_previous_progress"].to_dict()
+
     total_tasks = len(tasks)
     tasks = tasks.head(max(30, int(visible_count or 30)))
     today = datetime.now(ZoneInfo("Asia/Taipei")).date()
@@ -2099,15 +2111,28 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026", visibl
         # Display the progress recorded on this task row, not the tower's latest progress.
         task_label = "" if pd.isna(r.get("Task")) else str(r["Task"])
         category = str(r.get("Category", "")).strip().casefold()
+        task_content = task_label
         if category == "inspection":
             recorded_progress = pd.to_numeric(r.get("Progress"), errors="coerce")
             if pd.notna(recorded_progress):
                 progress_text = f"{float(recorded_progress):g}"
-                task_label = f"{task_label} ({progress_text}%)"
+                prior = previous_progress.get(r.name)
+                # Green = complete; amber = unchanged from previous valid record;
+                # blue = otherwise in progress. No prior record is not a stall.
+                if recorded_progress >= 100:
+                    progress_color = "#15803d"
+                elif prior is not None and pd.notna(prior) and recorded_progress == prior:
+                    progress_color = "#b45309"
+                else:
+                    progress_color = "#2563eb"
+                task_content = html.Span([
+                    task_label, " ",
+                    html.Span(f"({progress_text}%)", style={"color": progress_color, "fontWeight": "700"})
+                ])
 
         rows.append(html.Tr([
             html.Td(date_content, style={"fontWeight": "700", "whiteSpace": "nowrap"} if is_today else {"whiteSpace": "nowrap"}),
-            html.Td(task_label),
+            html.Td(task_content),
             html.Td(html.Span(f"{category_icon.get(r['Category'], '')} {r['Category']}")),
             html.Td("" if pd.isna(r.get("Supervisor")) else r["Supervisor"]),
             html.Td("" if pd.isna(r.get("Pilot")) else r["Pilot"]),
