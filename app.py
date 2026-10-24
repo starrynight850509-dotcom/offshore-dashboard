@@ -1335,6 +1335,7 @@ def _analytics(fragment=False):
             max-width: 100%;
             max-height: 350px;
             overflow-y: auto;
+            scrollbar-gutter: stable;
             overflow-x: hidden;
             border: 1px solid #ddd;
             border-radius: 10px;
@@ -1491,7 +1492,7 @@ def _analytics(fragment=False):
         .health-metric {{ background:white; border:1px solid #ddd; border-radius:10px;
             padding:12px 16px; min-width:145px; flex:1; }}
         .health-metric strong {{ display:block; font-size:20px; margin-top:6px; }}
-        .health-table-wrap {{ max-height:370px; overflow:auto; border:1px solid #ddd; border-radius:9px; }}
+        .health-table-wrap {{ max-height:350px; overflow-y:auto; overflow-x:auto; scrollbar-gutter:stable; border:1px solid #ddd; border-radius:9px; }}
         .health-table {{ border-collapse:collapse; width:100%; font-size:13px; background:white; }}
         .health-table th,.health-table td {{ text-align:left; padding:9px; border-bottom:1px solid #e5e7eb; }}
         .health-table th {{ background:#f1f5f9; position:sticky; top:0; }}
@@ -1506,7 +1507,7 @@ def _analytics(fragment=False):
         .billing-track {{ height:7px;background:#e2e8f0;border-radius:5px;overflow:hidden;margin:9px 0; }}
         .billing-fill {{ height:100%;background:#2563eb; }}
         .billing-note {{ color:#64748b;font-size:13px;line-height:1.5; }}
-        .billing-history {{ overflow:auto;max-height:370px;border:1px solid #ddd;border-radius:9px;background:white; }}
+        .billing-history {{ max-height:350px;overflow-y:auto;overflow-x:auto;scrollbar-gutter:stable;border:1px solid #ddd;border-radius:9px;background:white; }}
         .billing-history table {{ border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap; }}
         .billing-history th,.billing-history td {{ padding:9px;border-bottom:1px solid #e5e7eb;text-align:left; }}
         .billing-history th {{ position:sticky;top:0;background:#f1f5f9; }}
@@ -1531,10 +1532,13 @@ def _analytics(fragment=False):
 
     <div class="analytics-layout">
 
-        <!-- Left: Summary + Recent Sessions -->
+        <!-- Left: Summary -->
         <div class="analytics-summary">
             <div id="analytics-cards">{cards}</div>
+        </div>
 
+        <!-- Right: Recent Sessions -->
+        <div class="analytics-history">
             <h3>Recent Sessions</h3>
             <div class="table-container" id="recent-container">
                 {recent}
