@@ -2090,12 +2090,12 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026"):
         date_content = [start.strftime("%Y-%m-%d")] if pd.notna(start) else [""]
         if is_today:
             date_content.append(html.Span("TODAY", style={
-                "marginLeft": "7px", "padding": "2px 6px", "borderRadius": "4px",
+                "marginLeft": "7px", "padding": "2px 6px", "borderRadius": "4px", "display": "inline-block",
                 "backgroundColor": "#dbeafe", "color": "#1d4ed8",
                 "fontSize": "10px", "fontWeight": "700"
             }))
         rows.append(html.Tr([
-            html.Td(date_content, style={"fontWeight": "700"} if is_today else {}),
+            html.Td(date_content, style={"fontWeight": "700", "whiteSpace": "nowrap"} if is_today else {"whiteSpace": "nowrap"}),
             html.Td(r["Task"]),
             html.Td(html.Span(f"{category_icon.get(r['Category'], '')} {r['Category']}")),
             html.Td("" if pd.isna(r.get("Supervisor")) else r["Supervisor"]),
@@ -2122,7 +2122,7 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026"):
             html.Table([
                 html.Colgroup([
                     html.Col(style={"width": width}) for width in
-                    ["115px", "105px", "125px", "115px", "115px", "135px", "115px", "260px"]
+                    ["155px", "135px", "155px", "145px", "145px", "170px", "145px", "300px"]
                 ]),
                 html.Thead(html.Tr([html.Th(name) for name in headers])),
                 html.Tbody(rows if rows else [html.Tr([
@@ -2130,7 +2130,7 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026"):
                             style={"color": "#6b7280", "padding": "12px"})
                 ])])
             ], className="ocean-upcoming-table", style={
-                "width": "1085px", "minWidth": "1085px", "tableLayout": "fixed",
+                "width": "100%", "minWidth": "1350px", "tableLayout": "fixed",
                 "whiteSpace": "nowrap", "textAlign": "center",
                 "borderCollapse": "separate", "borderSpacing": "0", "fontSize": "12px"
             })
