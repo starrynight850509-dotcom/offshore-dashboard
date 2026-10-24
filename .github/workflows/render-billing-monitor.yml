@@ -1,4 +1,4 @@
-name: Render Billing Monitor v1.2
+name: Render Billing Monitor v1.3
 
 on:
   schedule:
@@ -48,7 +48,7 @@ jobs:
           headers = {
               'Authorization': 'Bearer ' + os.environ['RENDER_API_KEY'],
               'Accept': 'application/json',
-              'User-Agent': 'render-billing-monitor/1.1',
+              'User-Agent': 'render-billing-monitor/1.3',
           }
           def fetch(url):
               request = urllib.request.Request(url, headers=headers)
@@ -224,6 +224,67 @@ jobs:
               breakdown['status'] = 'UNAVAILABLE'
           if error:
               breakdown['error'] = error
+          # Per-series metadata diagnostics. Do not aggregate metric values into billing totals.
+          if status == 200 and isinstance(series, list):
+              diagnostics = []
+              for index, item in enumerate(series):
+                  info = {'series_index': index, 'status': 'UNEXPECTED_SHAPE'}
+                  if not isinstance(item, dict):
+                      diagnostics.append(info)
+                      continue
+                  raw_labels = item.get('labels')
+                  info['label_fields'] = sorted({
+                      str(label.get('field', ''))[:60] for label in raw_labels
+                      if isinstance(label, dict)
+                  }) if isinstance(raw_labels, list) else []
+                  info['label_count'] = len(raw_labels) if isinstance(raw_labels, list) else None
+                  info['unit'] = str(item.get('unit', ''))[:30]
+                  raw_values = item.get('values')
+                  if not isinstance(raw_values, list):
+                      diagnostics.append(info)
+                      continue
+                  observations = []
+                  invalid = 0
+                  for point in raw_values:
+                      if not isinstance(point, dict):
+                          invalid += 1
+                          continue
+                      timestamp = parse_time(point.get('timestamp'))
+                      value = point.get('value')
+                      if (timestamp is None or isinstance(value, bool)
+                              or not isinstance(value, (int, float)) or not math.isfinite(value)):
+                          invalid += 1
+                          continue
+                      observations.append((timestamp, float(value)))
+                  observations.sort(key=lambda pair: pair[0])
+                  times = [t for t, _ in observations]
+                  values = [v for _, v in observations]
+                  deltas = [(b-a).total_seconds() / 60 for a, b in zip(times, times[1:])]
+                  changes = [b-a for a, b in zip(values, values[1:])]
+                  info.update({
+                      'status': 'PASS' if observations else 'NO_VALID_POINTS',
+                      'raw_point_count': len(raw_values),
+                      'valid_point_count': len(observations),
+                      'invalid_point_count': invalid,
+                      'duplicate_timestamp_count': len(times)-len(set(times)),
+                      'first_timestamp_utc': times[0].isoformat() if times else None,
+                      'last_timestamp_utc': times[-1].isoformat() if times else None,
+                      'interval_minutes': {
+                          'min': min(deltas), 'max': max(deltas),
+                          'most_common': collections.Counter(deltas).most_common(3),
+                      } if deltas else None,
+                      'values': {
+                          'first': values[0], 'last': values[-1],
+                          'min': min(values), 'max': max(values),
+                          'negative_count': sum(v < 0 for v in values),
+                          'increases': sum(d > 0 for d in changes),
+                          'decreases': sum(d < 0 for d in changes),
+                          'unchanged': sum(d == 0 for d in changes),
+                      } if values else None,
+                      'aggregation': 'NOT_CALCULATED_UNVERIFIED_METRIC_SEMANTICS',
+                  })
+                  diagnostics.append(info)
+              breakdown['series_diagnostics'] = diagnostics
           report['bandwidth_sources_month_to_date'] = breakdown
           print('\n=== Monthly Bandwidth Sources (NOT Billing) ===')
           print('Status:', breakdown['status'], '| HTTP:', status,
@@ -231,6 +292,8 @@ jobs:
                 '| points:', breakdown.get('point_count'),
                 '| units:', breakdown.get('units'))
           print('Structure:', {k: breakdown[k] for k in ('root_type', 'root_length', 'response_keys', 'field_types', 'element_types', 'sample_keys', 'sample_field_types') if k in breakdown})
+          for item in breakdown.get('series_diagnostics', []):
+              print('Series diagnostics:', json.dumps(item, ensure_ascii=False, sort_keys=True))
 
           print('\n=== Billing Usage (official values only) ===')
           for name, item in report['billing'].items():
