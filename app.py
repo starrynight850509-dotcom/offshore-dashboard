@@ -2126,7 +2126,7 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026", visibl
                     html.Col(style={"width": width}) for width in
                     ["12%", "10%", "12%", "11%", "11%", "13%", "11%", "20%"]
                 ]),
-                html.Thead(html.Tr([html.Th(name) for name in headers])),
+                html.Thead(html.Tr([html.Th(name, style={"position": "sticky", "top": "0", "zIndex": 5, "backgroundColor": "#263c54", "backgroundClip": "padding-box"}) for name in headers])),
                 html.Tbody(rows if rows else [html.Tr([
                     html.Td("No tasks for the selected project.", colSpan=len(headers),
                             style={"color": "#6b7280", "padding": "12px"})
