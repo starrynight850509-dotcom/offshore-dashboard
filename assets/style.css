@@ -2,7 +2,7 @@
 :root {--ocean-bg:#101d2d;--ocean-panel:#1d3047;--ocean-border:#34475e;--ocean-text:#f0f6fc;--ocean-muted:#afc1d5;--ocean-accent:#78c8fa;}
 body {background:var(--ocean-bg);margin:0;}
 .ocean-app {background:var(--ocean-bg);color:var(--ocean-text);font-family:Inter,"Segoe UI",Arial,sans-serif;min-height:100vh;padding:20px 24px;box-sizing:border-box;}
-.ocean-header {background:var(--ocean-panel);border:1px solid var(--ocean-border);border-radius:12px;padding:20px 14px;margin-bottom:16px!important;}
+.ocean-header {background:var(--ocean-panel);border:1px solid var(--ocean-border);border-radius:12px;padding:2px 14px;margin-bottom:16px!important;}
 .ocean-title {font-family:inherit;font-size:clamp(19px,2vw,28px);font-weight:650;letter-spacing:.15px;color:var(--ocean-text);margin-top:0;}
 .ocean-subtitle,.ocean-windy-status {color:var(--ocean-muted)!important;font-size:12px;line-height:1.6;}
 .ocean-summary {background:#101d2d!important;background-color:#101d2d!important;padding:10px!important;margin-bottom:14px!important;border:0!important;box-shadow:none!important;}
@@ -292,4 +292,52 @@ body {background:var(--ocean-bg);margin:0;}
     align-self: stretch;
     overflow-y: auto;
   }
+}
+
+
+/* About / Acknowledgements — justified prose, natural closing lines */
+#about-page h3 + p,
+#about-page h3 ~ p:not(:nth-last-child(-n+2)) {
+  text-align: justify;
+  text-justify: inter-word;
+  hyphens: auto;
+}
+#about-page h3 ~ p:nth-last-child(-n+2) {
+  text-align: left;
+  hyphens: none;
+}
+@media (max-width: 768px) {
+  #about-page h3 ~ p {
+    text-align: left;
+    hyphens: none;
+  }
+}
+
+/* About — subtle divider between introduction and acknowledgements.
+   The second direct div is the photo + Acknowledgements section. */
+#about-page > div:nth-of-type(2) {
+  border-top: 1px solid #426078;
+  padding-top: 28px;
+}
+
+
+/* Task History & Upcoming — slim scrollbar only for Note cells */
+.ocean-upcoming-table td:last-child > div {
+  scrollbar-width: thin;
+  scrollbar-color: #607d9a transparent;
+}
+.ocean-upcoming-table td:last-child > div::-webkit-scrollbar {
+  height: 1px;
+}
+.ocean-upcoming-table td:last-child > div::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ocean-upcoming-table td:last-child > div::-webkit-scrollbar-thumb {
+  background: #526b85;
+  border-radius: 8px;
+}
+.ocean-upcoming-table td:last-child > div::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }

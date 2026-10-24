@@ -2770,7 +2770,7 @@ app.layout = html.Div([
     
         ], style={"flex": "4", "minWidth": 0, "textAlign": "left"}),
         html.Div([
-            html.Div("Overall Completed (All Years)", style={"fontSize": "12px", "color": "#cbd5e1"}),
+            html.Div("Overall Completed (All Years)", style={"fontSize": "12px", "color": "#cbd5e1", "marginBottom": "9px", "lineHeight": "1.3"}),
             html.Div([
                 html.Div(id="overall-progress-ring", style={
                     "position": "absolute", "inset": "0", "borderRadius": "50%",
@@ -2778,22 +2778,22 @@ app.layout = html.Div([
                     "transition": "background 0.8s ease"
                 }),
                 html.Div(style={
-                    "position": "absolute", "inset": "5px", "borderRadius": "50%",
+                    "position": "absolute", "inset": "6px", "borderRadius": "50%",
                     "backgroundColor": "#203149"
                 }),
                 html.Div("—", id="overall-progress-percent", style={
                     "position": "absolute", "top": "50%", "left": "50%",
                     "transform": "translate(-50%, -50%)", "whiteSpace": "nowrap",
-                    "fontSize": "15px", "fontWeight": "700", "color": "white"
+                    "fontSize": "14px", "fontWeight": "700", "color": "white"
                 })
-            ], style={"position": "relative", "width": "56px", "height": "56px"}),
+            ], style={"position": "relative", "width": "60px", "height": "60px", "flexShrink": 0}),
             html.Div("— / — Jackets", id="overall-progress-count", style={
-                "fontSize": "12px", "color": "#cbd5e1"
+                "fontSize": "12px", "color": "#cbd5e1", "marginTop": "9px", "lineHeight": "1.3"
             })
         ], style={
             "flex": "1", "minWidth": "135px", "borderLeft": "1px solid #52647a",
             "display": "flex", "flexDirection": "column", "alignItems": "center",
-            "justifyContent": "center", "textAlign": "center", "paddingLeft": "12px"
+            "justifyContent": "center", "textAlign": "center", "paddingLeft": "12px", "paddingTop": "3px", "paddingBottom": "3px"
         })
     ], className="ocean-header", style={
         "display": "flex", "alignItems": "center", "gap": "12px",
@@ -3114,20 +3114,27 @@ app.layout = html.Div([
             html.H2("About This Dashboard", style={"margin": "0 0 12px"}),
             html.P("This dashboard began with a simple idea: to make project schedules easier to understand."),
             html.P("Over time, that idea grew into something much larger than I originally intended."),
-        ], style={"marginTop": "22px", "lineHeight": "1.8"}),
+        ], style={"marginTop": "22px", "lineHeight": "1.8", "textAlign": "center"}),
         html.Div([
             html.Img(src="data:image/png;base64," + ABOUT_PORTRAIT_IMAGE,
                      alt="Survey team member overlooking the harbor",
                      style={"width": "100%", "maxWidth": "320px", "borderRadius": "8px",
                             "objectFit": "cover", "alignSelf": "start"}),
             html.Div([
-                html.H3("Acknowledgements", style={"marginTop": "0"}),
-                html.P("I would like to thank my colleagues for the questions, suggestions, and unexpected problems that helped shape this project."),
+                html.H3("Acknowledgements", style={"margin": "0 0 16px"}),
+                html.P("I would like to express my gratitude to everyone at International Ocean Group (IOG) and BeeX."),
+                html.P("Through our time working together, I had the opportunity to meet people from different backgrounds, learn from their experiences, and see the world from perspectives I might never have encountered otherwise."),
+                html.P("Some moments were challenging, some were unexpected, and some were simply ordinary days spent working together. Along the way, the questions we asked, the problems we encountered, and the ideas we shared gradually became part of this project."),
+                html.P("I do not know where our journeys will take us next, but I am glad that, for a part of mine, we are walking together.",
+                       style={"marginBottom": "24px"}),
                 html.P("Special thanks to the open-source communities, developers, and tools whose work made this dashboard possible."),
-                html.P("And finally, to Tux and the little Octocat who kept me company through countless updates."),
-                html.P("What began as a Gantt Chart somehow became an entire dashboard."),
-                html.P("I am still not entirely sure how that happened. XD"),
-            ], style={"flex": "1", "minWidth": "230px", "lineHeight": "1.85"}),
+                html.P("And finally, to Tux and the little Octocat who kept me company through countless updates.",
+                       style={"marginBottom": "24px"}),
+                html.P("What began as a Gantt Chart somehow became an entire dashboard.",
+                       style={"marginBottom": "8px"}),
+                html.P("I am still not entirely sure how that happened. XD",
+                       style={"marginTop": "0"}),
+            ], style={"flex": "1", "minWidth": "230px", "lineHeight": "1.75"}),
         ], style={"display": "flex", "flexWrap": "wrap", "gap": "24px",
                   "alignItems": "flex-start", "marginTop": "26px"}),
         html.Div([
