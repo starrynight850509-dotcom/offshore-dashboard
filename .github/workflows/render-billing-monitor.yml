@@ -1,4 +1,4 @@
-name: Render Billing Monitor - Automated Usage Diagnostics
+name: Render Billing Monitor - Neon Daily Snapshot
 
 on:
   schedule:
@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
     steps:
@@ -531,8 +532,97 @@ jobs:
           print('IMPORTANT: Metric values are NOT billed totals. No estimation or substitution.')
           with open('render-diagnostics.json', 'w', encoding='utf-8') as file:
               json.dump(report, file, indent=2, ensure_ascii=False)
-          print('Report saved. No database writes. Credentials and API bodies not logged.')
+          print('Diagnostic report saved. Credentials and API bodies not logged.')
           PY
+      - name: Install PostgreSQL client
+        if: success()
+        run: python -m pip install --disable-pip-version-check 'psycopg[binary]>=3.2,<4'
+
+      - name: Store unified daily snapshot in Neon
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo '::error::Missing GitHub Secret DATABASE_URL (Neon pooled connection string)'
+            exit 1
+          fi
+          python - <<'PYSQL'
+          import datetime as dt
+          import json
+          import os
+          from decimal import Decimal
+          import psycopg
+          from psycopg.types.json import Jsonb
+
+          with open('render-diagnostics.json', encoding='utf-8') as f:
+              report = json.load(f)
+          checked = dt.datetime.fromisoformat(report['checked_at_utc'].replace('Z', '+00:00'))
+          inventory = report.get('inventory') or {}
+          domains = inventory.get('custom_domains') or {}
+          exp = (report.get('bandwidth_sources_month_to_date') or {}).get('experimental_bandwidth_goal') or {}
+          bandwidth = exp.get('observed_values_sum_mb') if exp.get('status') == 'EXPERIMENTAL' else None
+          if inventory.get('status') != 'PASS':
+              services = None
+          else:
+              services = inventory.get('service_count')
+          custom_domains = domains.get('count') if domains.get('status') == 'PASS' else None
+          # The two missing billing readings are deliberately NULL, not estimates.
+          # This table records one daily snapshot per Render workspace and UTC date.
+          owner = inventory.get('owner_id') or 'service:' + report['service_id']
+          with psycopg.connect(os.environ['DATABASE_URL'], connect_timeout=15, autocommit=False) as conn:
+              with conn.cursor() as cur:
+                  cur.execute('''CREATE TABLE IF NOT EXISTS render_billing_daily (
+                    owner_key TEXT NOT NULL,
+                    snapshot_date DATE NOT NULL,
+                    checked_at TIMESTAMPTZ NOT NULL,
+                    service_id TEXT NOT NULL,
+                    instance_hours NUMERIC,
+                    pipeline_minutes NUMERIC,
+                    bandwidth_experimental_mb NUMERIC,
+                    services_inventory INTEGER,
+                    custom_domains_inventory INTEGER,
+                    status_instance_hours TEXT NOT NULL,
+                    status_pipeline_minutes TEXT NOT NULL,
+                    status_bandwidth TEXT NOT NULL,
+                    status_services TEXT NOT NULL,
+                    status_custom_domains TEXT NOT NULL,
+                    report JSONB NOT NULL,
+                    PRIMARY KEY (owner_key, snapshot_date)
+                  )''')
+                  cur.execute('''INSERT INTO render_billing_daily (
+                    owner_key,snapshot_date,checked_at,service_id,
+                    instance_hours,pipeline_minutes,bandwidth_experimental_mb,
+                    services_inventory,custom_domains_inventory,
+                    status_instance_hours,status_pipeline_minutes,status_bandwidth,
+                    status_services,status_custom_domains,report
+                  ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                  ON CONFLICT (owner_key,snapshot_date) DO UPDATE SET
+                    checked_at=EXCLUDED.checked_at,
+                    service_id=EXCLUDED.service_id,
+                    instance_hours=EXCLUDED.instance_hours,
+                    pipeline_minutes=EXCLUDED.pipeline_minutes,
+                    bandwidth_experimental_mb=EXCLUDED.bandwidth_experimental_mb,
+                    services_inventory=EXCLUDED.services_inventory,
+                    custom_domains_inventory=EXCLUDED.custom_domains_inventory,
+                    status_instance_hours=EXCLUDED.status_instance_hours,
+                    status_pipeline_minutes=EXCLUDED.status_pipeline_minutes,
+                    status_bandwidth=EXCLUDED.status_bandwidth,
+                    status_services=EXCLUDED.status_services,
+                    status_custom_domains=EXCLUDED.status_custom_domains,
+                    report=EXCLUDED.report
+                  WHERE render_billing_daily.checked_at <= EXCLUDED.checked_at''', (
+                    owner, checked.date(), checked, report['service_id'],
+                    None, None, bandwidth, services, custom_domains,
+                    'UNAVAILABLE', 'UNAVAILABLE', 'EXPERIMENTAL' if bandwidth is not None else 'UNAVAILABLE',
+                    'API_INVENTORY_NOT_BILLING' if services is not None else 'UNAVAILABLE',
+                    'API_INVENTORY_NOT_BILLING' if custom_domains is not None else 'UNAVAILABLE',
+                    Jsonb(report)
+                  ))
+              conn.commit()
+          print('Neon daily snapshot saved successfully. Official billing fields remain NULL.')
+          PYSQL
+
       - name: Upload diagnostic JSON for review
         if: always()
         uses: actions/upload-artifact@v4
