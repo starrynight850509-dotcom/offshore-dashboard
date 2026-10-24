@@ -1090,6 +1090,43 @@ def _health_data():
     return {"state": state, "latest": latest, "history": history,
             "success_rate": round(100 * sum(r["status"] == "PASS" for r in history) / len(history), 1) if history else None}
 
+def _billing_data():
+    """Read-only daily Render monitoring snapshots; never infer official billing usage."""
+    with engine.connect() as conn:
+        records = conn.execute(text("""
+            SELECT snapshot_date, checked_at, service_id,
+                   instance_hours, pipeline_minutes, bandwidth_experimental_mb,
+                   services_inventory, custom_domains_inventory,
+                   status_instance_hours, status_pipeline_minutes,
+                   status_bandwidth, status_services, status_custom_domains
+            FROM render_billing_daily
+            ORDER BY checked_at DESC LIMIT 90
+        """)).mappings().all()
+    history = []
+    for r in records:
+        stamp = pd.Timestamp(r['checked_at'])
+        if stamp.tzinfo is None:
+            stamp = stamp.tz_localize('UTC')
+        history.append({
+            'date': str(r['snapshot_date']),
+            'time': stamp.tz_convert('Asia/Taipei').strftime('%Y-%m-%d %H:%M'),
+            'service_id': r['service_id'],
+            'instance_hours': float(r['instance_hours']) if r['instance_hours'] is not None else None,
+            'pipeline_minutes': float(r['pipeline_minutes']) if r['pipeline_minutes'] is not None else None,
+            'bandwidth_mb': float(r['bandwidth_experimental_mb']) if r['bandwidth_experimental_mb'] is not None else None,
+            'services': r['services_inventory'],
+            'domains': r['custom_domains_inventory'],
+            'statuses': {
+                'instance_hours': r['status_instance_hours'],
+                'pipeline_minutes': r['status_pipeline_minutes'],
+                'bandwidth_mb': r['status_bandwidth'],
+                'services': r['status_services'],
+                'domains': r['status_custom_domains'],
+            },
+        })
+    return {'latest': history[0] if history else None, 'history': history}
+
+
 def _analytics(fragment=False):
     with engine.connect() as c:
         v = pd.read_sql_query(
@@ -1462,6 +1499,17 @@ def _analytics(fragment=False):
             border-radius:10px; box-sizing:border-box; }}
         .health-pass {{ color:#15803d; }} .health-fail {{ color:#b91c1c; }}
         .health-delayed {{ color:#b45309; }}
+        .billing-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:14px 0; }}
+        .billing-card {{ background:white;border:1px solid #ddd;border-radius:10px;padding:13px;min-width:0; }}
+        .billing-card .billing-value {{ font-size:22px;font-weight:700;margin:8px 0;overflow-wrap:anywhere; }}
+        .billing-card small {{ display:block;color:#64748b;overflow-wrap:anywhere; }}
+        .billing-track {{ height:7px;background:#e2e8f0;border-radius:5px;overflow:hidden;margin:9px 0; }}
+        .billing-fill {{ height:100%;background:#2563eb; }}
+        .billing-note {{ color:#64748b;font-size:13px;line-height:1.5; }}
+        .billing-history {{ overflow:auto;max-height:370px;border:1px solid #ddd;border-radius:9px;background:white; }}
+        .billing-history table {{ border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap; }}
+        .billing-history th,.billing-history td {{ padding:9px;border-bottom:1px solid #e5e7eb;text-align:left; }}
+        .billing-history th {{ position:sticky;top:0;background:#f1f5f9; }}
     </style>
 
     <h1>Admin Console</h1>
@@ -1469,6 +1517,7 @@ def _analytics(fragment=False):
       <button type="button" class="admin-tab active" data-panel="analytics">Analytics</button>
       <button type="button" class="admin-tab" data-panel="startup">Startup</button>
       <button type="button" class="admin-tab" data-panel="health">Health</button>
+      <button type="button" class="admin-tab" data-panel="billing">Render Billing</button>
     </nav>
     <div class="admin-panel" id="panel-analytics">
       <h2>Site Analytics</h2>
@@ -1505,6 +1554,12 @@ def _analytics(fragment=False):
       <h2>System Health</h2>
       <p class="note">External /healthz liveness checks · GitHub Actions · Neon history (up to 168 checks)</p>
       <div id="health-content" aria-live="polite">Loading health checks…</div>
+    </div>
+
+    <div class="admin-panel" id="panel-billing" hidden>
+      <h2>Render Billing Monitor</h2>
+      <p class="billing-note">Daily GitHub Actions → Neon · API inventory and experimental metrics are not official billed usage.</p>
+      <div id="billing-content" aria-live="polite">Loading billing snapshots…</div>
     </div>
 
     <script>
@@ -1631,6 +1686,54 @@ def _analytics(fragment=False):
                 healthContent.textContent = 'Health data unavailable: ' + error.message;
             }} finally {{ healthBusy = false; }}
         }}
+        const billingContent = document.getElementById('billing-content');
+        let billingBusy = false;
+        function renderBilling(data) {{
+            const latest = data.latest;
+            if (!latest) {{ billingContent.innerHTML = '<p class="billing-note">No snapshots recorded yet.</p>'; return; }}
+            const specs = [
+                ['Free Instance Hours','instance_hours',750,'hr'],
+                ['Included Bandwidth','bandwidth_mb',5000,'MB'],
+                ['Pipeline Minutes','pipeline_minutes',500,'min'],
+                ['Services','services',25,''],
+                ['Custom Domains','domains',2,'']
+            ];
+            const cards = specs.map(([label,key,quota,unit]) => {{
+                const value = latest[key];
+                const status = latest.statuses[key] || 'UNAVAILABLE';
+                const valid = value !== null && Number.isFinite(Number(value));
+                const pct = valid ? Math.max(0,Math.min(100,Number(value)/quota*100)) : 0;
+                const display = valid ? Number(value).toLocaleString(undefined,{{maximumFractionDigits:2}}) : '—';
+                return `<div class="billing-card"><strong>${{escapeHtml(label)}}</strong>` +
+                    `<div class="billing-value">${{escapeHtml(display)}}${{valid && unit ? ' '+unit : ''}}</div>` +
+                    `<small>Reference quota: ${{quota.toLocaleString()}} ${{escapeHtml(unit)}}</small>` +
+                    `<div class="billing-track"><div class="billing-fill" style="width:${{pct}}%"></div></div>` +
+                    `<small>${{valid ? pct.toFixed(1)+'% of reference quota' : 'No verified reading'}}</small>` +
+                    `<small>Source status: ${{escapeHtml(status)}}</small></div>`;
+            }}).join('');
+            const rows = (data.history || []).map(r => `<tr><td>${{escapeHtml(r.time)}}</td>` +
+                `<td>${{r.instance_hours == null ? '—' : escapeHtml(r.instance_hours)}}</td>` +
+                `<td>${{r.bandwidth_mb == null ? '—' : escapeHtml(r.bandwidth_mb.toFixed(2))}}</td>` +
+                `<td>${{r.pipeline_minutes == null ? '—' : escapeHtml(r.pipeline_minutes)}}</td>` +
+                `<td>${{r.services == null ? '—' : escapeHtml(r.services)}}</td>` +
+                `<td>${{r.domains == null ? '—' : escapeHtml(r.domains)}}</td></tr>`).join('');
+            billingContent.innerHTML = `<p class="billing-note">Last checked: ${{escapeHtml(latest.time)}} (Asia/Taipei) · Service: ${{escapeHtml(latest.service_id)}}</p>` +
+                `<div class="billing-grid">${{cards}}</div>` +
+                '<p class="billing-note">Bandwidth is an experimental sum, not Render Billing usage. Service/domain counts are API inventory, not verified billing. Missing values are intentionally blank. Quotas are reference values.</p>' +
+                '<h3>Daily Snapshot History</h3><div class="billing-history"><table><thead><tr><th>Time (TW)</th><th>Hours</th><th>Bandwidth (MB)*</th><th>Pipeline</th><th>Services</th><th>Domains</th></tr></thead><tbody>' +
+                (rows || '<tr><td colspan="6">No history yet</td></tr>') + '</tbody></table></div>';
+        }}
+        async function refreshBilling() {{
+            if (billingBusy || document.hidden) return;
+            billingBusy = true;
+            try {{
+                const response = await fetch('/admin/billing-data', {{cache:'no-store',credentials:'same-origin'}});
+                if (!response.ok) throw new Error('Billing refresh HTTP ' + response.status);
+                renderBilling(await response.json());
+            }} catch(error) {{
+                billingContent.textContent = 'Billing data unavailable: ' + error.message;
+            }} finally {{ billingBusy = false; }}
+        }}
         tabs.forEach(tab => tab.addEventListener('click', () => {{
             const target = tab.dataset.panel;
             tabs.forEach(t => {{
@@ -1639,10 +1742,12 @@ def _analytics(fragment=False):
             }});
             panels.forEach(p => p.hidden = p.id !== 'panel-' + target);
             if (target === 'health') refreshHealth();
+            if (target === 'billing') refreshBilling();
         }}));
         setInterval(refreshAnalytics, refreshMs);
         setInterval(() => {{
             if (!document.getElementById('panel-health').hidden) refreshHealth();
+            if (!document.getElementById('panel-billing').hidden) refreshBilling();
         }}, refreshMs);
     }})();
     </script>
@@ -2097,6 +2202,19 @@ def admin_health_data():
     except Exception as exc:
         server.logger.warning("Admin health data unavailable: %s", exc)
         response = jsonify(error="Health check history is temporarily unavailable")
+        response.status_code = 503
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+@server.get("/admin/billing-data")
+def admin_billing_data():
+    if not _check_auth():
+        return _auth_required()
+    try:
+        response = jsonify(_billing_data())
+    except Exception as exc:
+        server.logger.warning("Admin billing data unavailable: %s", exc)
+        response = jsonify(error="Billing snapshots are temporarily unavailable")
         response.status_code = 503
     response.headers["Cache-Control"] = "no-store"
     return response
