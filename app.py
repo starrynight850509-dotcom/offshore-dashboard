@@ -2096,9 +2096,18 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026", visibl
                 "backgroundColor": "#dbeafe", "color": "#1d4ed8",
                 "fontSize": "10px", "fontWeight": "700"
             }))
+        # Display the progress recorded on this task row, not the tower's latest progress.
+        task_label = "" if pd.isna(r.get("Task")) else str(r["Task"])
+        category = str(r.get("Category", "")).strip().casefold()
+        if category == "inspection":
+            recorded_progress = pd.to_numeric(r.get("Progress"), errors="coerce")
+            if pd.notna(recorded_progress):
+                progress_text = f"{float(recorded_progress):g}"
+                task_label = f"{task_label} ({progress_text}%)"
+
         rows.append(html.Tr([
             html.Td(date_content, style={"fontWeight": "700", "whiteSpace": "nowrap"} if is_today else {"whiteSpace": "nowrap"}),
-            html.Td(r["Task"]),
+            html.Td(task_label),
             html.Td(html.Span(f"{category_icon.get(r['Category'], '')} {r['Category']}")),
             html.Td("" if pd.isna(r.get("Supervisor")) else r["Supervisor"]),
             html.Td("" if pd.isna(r.get("Pilot")) else r["Pilot"]),
