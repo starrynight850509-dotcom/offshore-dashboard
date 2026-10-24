@@ -1,0 +1,188 @@
+name: Render Billing Monitor v1.0
+
+on:
+  schedule:
+    - cron: '17 1 * * *' # 09:17 Asia/Taipei; GitHub may delay scheduled runs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-billing-monitor
+  cancel-in-progress: false
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+    steps:
+      - name: Unified Render diagnostics (read only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${RENDER_API_KEY:-}" ]]; then
+            echo '::error::Missing GitHub Secret RENDER_API_KEY'; exit 1
+          fi
+          if [[ ! "${RENDER_SERVICE_ID:-}" =~ ^srv-[a-zA-Z0-9]+$ ]]; then
+            echo '::error::Missing or invalid GitHub Variable RENDER_SERVICE_ID'; exit 1
+          fi
+          python - <<'PY'
+          import collections
+          import datetime as dt
+          import json
+          import math
+          import os
+          import statistics
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          now = dt.datetime.now(dt.timezone.utc)
+          start = now - dt.timedelta(hours=24)
+          tz = dt.timezone(dt.timedelta(hours=8))
+          service_id = os.environ['RENDER_SERVICE_ID']
+          headers = {
+              'Authorization': 'Bearer ' + os.environ['RENDER_API_KEY'],
+              'Accept': 'application/json',
+              'User-Agent': 'render-billing-monitor/1.0',
+          }
+          def fetch(url):
+              request = urllib.request.Request(url, headers=headers)
+              try:
+                  with urllib.request.urlopen(request, timeout=25) as response:
+                      return response.status, json.load(response), None
+              except urllib.error.HTTPError as error:
+                  return error.code, None, 'HTTP error (body hidden)'
+              except Exception as error:
+                  return None, None, type(error).__name__
+          def parse_time(value):
+              try:
+                  return dt.datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(dt.timezone.utc)
+              except (AttributeError, ValueError, TypeError):
+                  return None
+          def label_key(series):
+              labels = series.get('labels', [])
+              if not isinstance(labels, list):
+                  return None
+              return tuple(sorted((str(label.get('field', '')), str(label.get('value', '')))
+                                  for label in labels if isinstance(label, dict)))
+
+          report = {
+              'checked_at_utc': now.isoformat(),
+              'window_start_utc': start.isoformat(),
+              'window_end_utc': now.isoformat(),
+              'service_id': service_id,
+              'billing': {
+                  'instance_hours': {'status': 'UNAVAILABLE', 'reason': 'No verified Billing Usage API endpoint'},
+                  'billing_bandwidth': {'status': 'UNAVAILABLE', 'reason': 'Metrics bandwidth is not verified as billable usage'},
+                  'pipeline_minutes': {'status': 'UNAVAILABLE', 'reason': 'No verified Billing Usage API endpoint'},
+                  'spend_limit': {'status': 'UNAVAILABLE', 'reason': 'No verified spend-limit read endpoint'},
+                  'service_quota': {'status': 'UNAVAILABLE', 'reason': 'Workspace quota not verified by service lookup'},
+                  'custom_domains': {'status': 'UNAVAILABLE', 'reason': 'Workspace domain quota not verified'},
+              },
+              'metrics': {},
+          }
+          print('=== Render Unified Diagnostics ===')
+          print('Taiwan check:', now.astimezone(tz).strftime('%Y-%m-%d %H:%M:%S'))
+          print('Service ID:', service_id)
+          status, service, error = fetch('https://api.render.com/v1/services/' + service_id)
+          report['service_lookup'] = {'http_status': status, 'status': 'PASS' if status == 200 and isinstance(service, dict) else 'ERROR'}
+          print('Service lookup:', report['service_lookup']['status'], '| HTTP', status, '|', error or '')
+          if report['service_lookup']['status'] != 'PASS':
+              raise SystemExit('::error::Service lookup failed; cannot validate target service')
+
+          params = urllib.parse.urlencode({
+              'resource': service_id,
+              'startTime': start.strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'endTime': now.strftime('%Y-%m-%dT%H:%M:%SZ'),
+          })
+          for name, path in [('bandwidth', 'bandwidth'), ('cpu', 'cpu'),
+                             ('memory', 'memory'), ('instance_count', 'instance-count')]:
+              status, payload, error = fetch('https://api.render.com/v1/metrics/' + path + '?' + params)
+              result = {'http_status': status, 'status': 'ERROR', 'series_count': None}
+              if status == 200 and isinstance(payload, list):
+                  result['status'] = 'PASS' if payload else 'NO_DATA'
+                  result['series_count'] = len(payload)
+                  units = collections.Counter()
+                  label_fields = collections.Counter()
+                  seen = set()
+                  duplicates = 0
+                  invalid = 0
+                  outside = 0
+                  points = []
+                  for series in payload:
+                      if not isinstance(series, dict):
+                          invalid += 1
+                          continue
+                      units[str(series.get('unit'))] += 1
+                      labels = label_key(series)
+                      if labels is None:
+                          invalid += 1
+                          continue
+                      for field, _ in labels:
+                          label_fields[field] += 1
+                      values = series.get('values', [])
+                      if not isinstance(values, list):
+                          invalid += 1
+                          continue
+                      for point in values:
+                          if not isinstance(point, dict):
+                              invalid += 1
+                              continue
+                          timestamp = parse_time(point.get('timestamp'))
+                          value = point.get('value')
+                          if timestamp is None or isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                              invalid += 1
+                              continue
+                          if not start <= timestamp <= now:
+                              outside += 1
+                              continue
+                          identity = (labels, timestamp)
+                          if identity in seen:
+                              duplicates += 1
+                              continue
+                          seen.add(identity)
+                          points.append((timestamp, float(value)))
+                  result.update({
+                      'units': dict(units), 'label_fields': dict(label_fields),
+                      'valid_points': len(points), 'invalid_points': invalid,
+                      'outside_window': outside, 'duplicate_points': duplicates,
+                  })
+                  if points:
+                      values = [value for _, value in points]
+                      latest = max(timestamp for timestamp, _ in points)
+                      latest_values = [value for timestamp, value in points if timestamp == latest]
+                      result.update({
+                          'first_observed_utc': min(timestamp for timestamp, _ in points).isoformat(),
+                          'latest_observed_utc': latest.isoformat(),
+                          'observation_mean': statistics.mean(values),
+                          'observation_max': max(values),
+                          'latest_value': latest_values[0] if len(latest_values) == 1 else None,
+                      })
+              report['metrics'][name] = result
+              print(name, ':', result['status'], '| HTTP', status,
+                    '| series', result['series_count'], '| points', result.get('valid_points', 0),
+                    '| units', result.get('units', {}), '| labels', list(result.get('label_fields', {})))
+              if error:
+                  print('  Error:', error)
+
+          print('\n=== Billing Usage (official values only) ===')
+          for name, item in report['billing'].items():
+              print(name, ':', item['status'], '|', item['reason'])
+          print('IMPORTANT: Metric values are NOT billed totals. No estimation or substitution.')
+          with open('render-diagnostics.json', 'w', encoding='utf-8') as file:
+              json.dump(report, file, indent=2, ensure_ascii=False)
+          print('Report saved. No database writes. Credentials and API bodies not logged.')
+          PY
+      - name: Upload diagnostic JSON for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-diagnostics
+          path: render-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 14
