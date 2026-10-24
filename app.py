@@ -2685,24 +2685,7 @@ app.index_string = """<!DOCTYPE html>
       window.addEventListener('resize',position);
     })();
     </script>
-    <script>
-(function () {
-  // Trigger the same accessible Load More button when nearing the scroll bottom.
-  // Re-rendered task containers are discovered automatically through delegation.
-  var last = 0;
-  document.addEventListener('scroll', function (event) {
-    var el = event.target;
-    if (!el || el.id !== 'task-history-scroll') return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight > 90) return;
-    var now = Date.now();
-    if (now - last < 700) return;
-    var btn = document.getElementById('task-history-more');
-    if (!btn || btn.disabled) return;
-    last = now;
-    btn.click();
-  }, true);
-})();
-</script>
+
 </body>
 </html>"""
 
