@@ -75,14 +75,24 @@ def prepare_data():
     pie_df.columns = pie_df.columns.astype(str).str.strip()
     if 'Date' not in pie_df.columns and 'Unnamed: 0' in pie_df.columns:
         pie_df = pie_df.rename(columns={'Unnamed: 0': 'Date'})
-    missing = [col for col in ['Date', *ACTIVITY_COLUMNS] if col not in pie_df.columns]
+    missing = [col for col in ['Date', 'Task', *ACTIVITY_COLUMNS] if col not in pie_df.columns]
     if missing:
         raise ValueError(f'pie_chart.xlsx missing columns: {missing}')
-    pie_df['Date'] = pd.to_datetime(pie_df['Date'], errors='raise')
+    pie_df['Date'] = pd.to_datetime(pie_df['Date'], errors='raise').dt.normalize()
     if pie_df['Date'].isna().any():
         raise ValueError('pie_chart.xlsx contains empty dates')
-    if pie_df['Date'].duplicated().any():
-        raise ValueError('pie_chart.xlsx contains duplicate dates')
+    pie_df['Task'] = pie_df['Task'].astype('string').str.strip().str.upper()
+    if pie_df['Task'].isna().any() or pie_df['Task'].eq('').any():
+        raise ValueError('pie_chart.xlsx contains empty Task values')
+    if pie_df.duplicated(subset=['Date', 'Task']).any():
+        duplicates = pie_df.loc[
+            pie_df.duplicated(subset=['Date', 'Task'], keep=False),
+            ['Date', 'Task']
+        ]
+        raise ValueError(
+            'pie_chart.xlsx contains duplicate Date + Task combinations:\n'
+            + duplicates.to_string(index=False)
+        )
     for col in ACTIVITY_COLUMNS:
         pie_df[col] = pie_df[col].map(duration_minutes).round(4)
     pie_df.to_pickle('pie_chart.pkl')
@@ -90,7 +100,7 @@ def prepare_data():
     pd.to_pickle({
         'updated': pd.Timestamp.now(tz='Asia/Taipei').strftime('%Y-%m-%d %H:%M')
     }, 'metadata.pkl')
-    print(f'Pickle files generated successfully! Pie chart: {len(pie_df)} dates.')
+    print(f'Pickle files generated successfully! Pie chart: {len(pie_df)} records.')
 
 
 def upload_schedule_to_neon():
