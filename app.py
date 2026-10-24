@@ -151,7 +151,7 @@ def load_pie_chart_cached(version):
     return result
 
 
-def build_daily_activity_pie(date, schedule_version):
+def build_daily_activity_pie(date, task, schedule_version):
     placeholder = html.Div("No activity duration data available.", style={
         "fontSize": "12px", "color": "#6b7280", "padding": "12px 6px"})
     try:
@@ -161,7 +161,12 @@ def build_daily_activity_pie(date, schedule_version):
         return placeholder
     if pie_data.empty:
         return placeholder
-    daily = pie_data.loc[pie_data["Date"] == pd.Timestamp(date).normalize()]
+    if "Task" not in pie_data.columns:
+        return placeholder
+    daily = pie_data.loc[
+        (pie_data["Date"] == pd.Timestamp(date).normalize()) &
+        (pie_data["Task"].fillna("").astype(str).str.strip().str.upper() == str(task).strip().upper())
+    ]
     if daily.empty:
         return placeholder
     totals = []
@@ -4290,7 +4295,7 @@ def show_detail(clickData, schedule_version):
         html.H4("Activity Duration", style={
             "margin": "0 0 8px", "fontSize": "17px", "fontWeight": "bold", "color": "#111827"
         }),
-        build_daily_activity_pie(date, schedule_version),
+        build_daily_activity_pie(date, task, schedule_version),
         html.Hr(style={"margin": "10px 0"}),
         ##Timeline 區塊標題
         html.H4(
