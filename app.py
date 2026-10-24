@@ -2772,15 +2772,15 @@ app.layout = html.Div([
         html.Div([
             html.Div("Overall Completed (All Years)", style={"fontSize": "12px", "color": "#cbd5e1"}),
             html.Div([
-                html.Svg([
-                    html.Circle(cx="38", cy="38", r="31", fill="none",
-                                stroke="#46546a", strokeWidth="6"),
-                    html.Circle(cx="38", cy="38", r="31", fill="none",
-                                stroke="#55c5ef", strokeWidth="6", strokeLinecap="round",
-                                transform="rotate(-90 38 38)",
-                                strokeDasharray="0 194.78", id="overall-progress-ring",
-                                style={"transition": "stroke-dasharray 0.8s ease"})
-                ], viewBox="0 0 76 76", style={"width": "76px", "height": "76px"}),
+                html.Div(id="overall-progress-ring", style={
+                    "position": "absolute", "inset": "0", "borderRadius": "50%",
+                    "background": "conic-gradient(#55c5ef 0%, #46546a 0%)",
+                    "transition": "background 0.8s ease"
+                }),
+                html.Div(style={
+                    "position": "absolute", "inset": "6px", "borderRadius": "50%",
+                    "backgroundColor": "#203149"
+                }),
                 html.Div("—", id="overall-progress-percent", style={
                     "position": "absolute", "top": "50%", "left": "50%",
                     "transform": "translate(-50%, -50%)", "whiteSpace": "nowrap",
@@ -4475,7 +4475,7 @@ def cached_completion_counts(schedule_version):
 
 @app.callback(
     Output("overall-progress-percent", "children"),
-    Output("overall-progress-ring", "strokeDasharray"),
+    Output("overall-progress-ring", "style"),
     Output("overall-progress-count", "children"),
     Output("project-completed-jackets", "children"),
     Output("initial-progress-check", "children"),
@@ -4495,10 +4495,12 @@ def update_overall_progress(schedule_version, selected_project):
         latest_df, _, _ = load_schedule_cached(schedule_version)
         year_df = latest_df.loc[latest_df["Date"].dt.year.eq(int(selected_project))]
         project_completed, _ = calculate_overall_tower_completion(year_df, cached_master_towers())
-    circumference = 2 * np.pi * 31
-    arc = circumference * max(0, min(100, percentage)) / 100
-    ring_dash = f"{arc:.2f} {circumference:.2f}"
-    return f"{percentage:.1f}%", ring_dash, f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}", "ready"
+    ring_style = {
+        "position": "absolute", "inset": "0", "borderRadius": "50%",
+        "background": f"conic-gradient(#55c5ef 0% {max(0, min(100, percentage)):.2f}%, #46546a {max(0, min(100, percentage)):.2f}% 100%)",
+        "transition": "background 0.8s ease"
+    }
+    return f"{percentage:.1f}%", ring_style, f"{completed} / {total} Jackets", f" | Completed Jackets: {project_completed}", "ready"
 
 #%% Overview project scope (independent from Schedule filters)
 @app.callback(
