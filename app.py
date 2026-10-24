@@ -2134,7 +2134,7 @@ def build_upcoming_tasks(days=7, source_df=None, selected_project="2026", visibl
             ], className="ocean-upcoming-table", style={
                 "width": "100%", "tableLayout": "fixed",
                 "whiteSpace": "nowrap", "textAlign": "center",
-                "overflow": "hidden", "borderCollapse": "separate", "borderSpacing": "0", "fontSize": "12px"
+                "borderCollapse": "separate", "borderSpacing": "0", "fontSize": "12px"
             })
         ], id="task-history-scroll", style={
             "maxHeight": "350px", "overflowY": "auto", "overflowX": "hidden",
