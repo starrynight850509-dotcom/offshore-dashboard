@@ -2409,7 +2409,7 @@ app.index_string = """<!DOCTYPE html>
                 label.textContent = descriptions[stage];
                 count.textContent = stage + ' / 5';
                 track.setAttribute('aria-valuenow', String(stage));
-                if (stage === 5) tux.classList.add('still');
+                // Keep Tux walking until the overlay actually disappears.
             }
             function finish() {
                 if (finished) return;
@@ -2418,6 +2418,7 @@ app.index_string = """<!DOCTYPE html>
                 window.setTimeout(function () { overlay.remove(); }, 350);
                 observer.disconnect();
                 window.clearInterval(poll);
+                if (checkTimer !== null) window.clearTimeout(checkTimer);
                 window.clearTimeout(watchdog);
             }
             function textOf(id) {
@@ -2488,9 +2489,18 @@ app.index_string = """<!DOCTYPE html>
                     }
                 }, 1000);
             }
-            var observer = new MutationObserver(checkDashboard);
+            // Coalesce bursts of Dash/Plotly DOM mutations into a single check.
+            var checkTimer = null;
+            function scheduleCheck() {
+                if (finished || checkTimer !== null) return;
+                checkTimer = window.setTimeout(function () {
+                    checkTimer = null;
+                    checkDashboard();
+                }, 100);
+            }
+            var observer = new MutationObserver(scheduleCheck);
             observer.observe(document.body, {childList: true, subtree: true, characterData: true});
-            var poll = window.setInterval(checkDashboard, 200);
+            var poll = window.setInterval(scheduleCheck, 350);
             checkDashboard();
             // A failed callback must never be reported as 100% ready.
             // Keep the last verified stage visible and offer a manual retry.
@@ -3323,7 +3333,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
     # Load schedule data only when version changes
     chart_df = prepared_chart_data(schedule_version)
     if selected_project not in (None, "all"):
-        chart_df = chart_df.loc[chart_df["Date"].dt.year == int(selected_project)].copy()
+        chart_df = chart_df.loc[chart_df["Date"].dt.year.eq(int(selected_project))].copy()
     # =========================================================
     # SAFE DEFAULTS
     # =========================================================
@@ -4228,7 +4238,6 @@ def update_kpi(schedule_version, selected_project):
     if schedule_version is None:
         return no_update, no_update
     latest_df, _, _ = load_schedule_cached(schedule_version)
-
     latest_kpi = calculate_kpi(latest_df, selected_project)
 
     return [
@@ -4477,21 +4486,21 @@ print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=T
 
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
+# if __name__ == "__main__":
+#     app.run(
+#         debug=False,
+#         host="0.0.0.0",
+#         port=8050
+#     )
 
 #本機測試
 server = app.server
-# if __name__ == "__main__":
-#    app.run(
-#        debug=True,
-#        host="127.0.0.1",
-#        port=8050
-#    )    
+if __name__ == "__main__":
+   app.run(
+       debug=True,
+       host="127.0.0.1",
+       port=8050
+   )    
     
     
 #http://127.0.0.1:8050/
