@@ -128,8 +128,81 @@ def get_schedule_updated_at():
         return conn.execute(text("""
             SELECT MAX(updated_at)
             FROM schedule_data
-            WHERE name IN ('progress', 'hourly')
+            WHERE name IN ('progress', 'hourly', 'pie_chart')
         """)).scalar()
+
+# Pie chart is optional and loaded lazily on the first detail click per schedule version.
+PIE_ACTIVITY_COLUMNS = [
+    "Transit", "Mob / Demob", "ROV Operational in Water",
+    "Downtime", "Administration", "ROV Maintenance"
+]
+PIE_ACTIVITY_COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#f59e0b", "#64748b", "#16a34a"]
+
+@lru_cache(maxsize=2)
+def load_pie_chart_cached(version):
+    with engine.connect() as conn:
+        row = conn.execute(text("SELECT data FROM schedule_data WHERE name = 'pie_chart'")).scalar()
+    if not row:
+        return pd.DataFrame()
+    result = pd.DataFrame(row)
+    if "Date" not in result.columns:
+        return pd.DataFrame()
+    result["Date"] = pd.to_datetime(result["Date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    return result
+
+
+def build_daily_activity_pie(date, schedule_version):
+    placeholder = html.Div("No activity duration data available.", style={
+        "fontSize": "12px", "color": "#6b7280", "padding": "12px 6px"})
+    try:
+        pie_data = load_pie_chart_cached(schedule_version)
+    except Exception as exc:
+        print(f"Pie chart load failed: {exc}", flush=True)
+        return placeholder
+    if pie_data.empty:
+        return placeholder
+    daily = pie_data.loc[pie_data["Date"] == pd.Timestamp(date).normalize()]
+    if daily.empty:
+        return placeholder
+    totals = []
+    for column in PIE_ACTIVITY_COLUMNS:
+        if column in daily.columns:
+            minutes = pd.to_numeric(daily[column], errors="coerce").fillna(0).sum()
+            if minutes > 0:
+                totals.append((column, float(minutes)))
+    if not totals:
+        return placeholder
+    labels, minutes = zip(*totals)
+    colors = [PIE_ACTIVITY_COLORS[PIE_ACTIVITY_COLUMNS.index(label)] for label in labels]
+    duration_labels = [
+        f"{round(value) // 60} hr {round(value) % 60} min"
+        for value in minutes
+    ]
+    fig = go.Figure(go.Pie(
+        labels=list(labels), values=list(minutes), hole=0.48,
+        marker=dict(colors=colors), sort=False,
+        textinfo="percent", textposition="inside",
+        customdata=duration_labels,
+        domain=dict(x=[0.08, 0.92], y=[0.08, 0.92]),
+        hovertemplate=(
+            "<b>%{label}</b><br>"
+            "Duration: %{customdata}<br>"
+            "Percentage: %{percent}<extra></extra>"
+        )
+    ))
+    fig.update_layout(
+        height=125, margin=dict(l=0, r=0, t=0, b=0),
+        font=dict(size=10), hoverlabel=dict(font_size=11), paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)", showlegend=False
+    )
+    return html.Div(
+        dcc.Graph(
+            figure=fig,
+            config={"displayModeBar": False, "responsive": True},
+            style={"width": "140px", "height": "125px"}
+        ),
+        style={"width": "140px", "maxWidth": "100%", "margin": "0 auto"}
+    )
 
 # One Engine shared by all three startup readers. Each thread checks out
 # its own connection from the same QueuePool; connections are never shared
@@ -3020,14 +3093,17 @@ app.layout = html.Div([
                 html.H4("Jump to Date",
                 style={
                         "margin":"0px",
-                        "padding":"0px"
+                        "padding":"0px",
+                        "fontSize": "15px",
+                        "fontWeight": "600"
                     }
                 ),
                 dcc.DatePickerSingle(
                     id="date-picker",
                     date=None,
                     display_format="YYYY-MM-DD",
-                    placeholder="Select a date"
+                    placeholder="Select a date",
+                    className="compact-date-picker"
                 ),
                 html.Hr(style={"margin":"5px 0"}),
                 #html.H3("Task Detail"),
@@ -3811,10 +3887,7 @@ def update_chart(selected_tasks, selected_cats, selected_personnel, selected_pro
     # =========================================================
     # LAYOUT
     # =========================================================
-    chart_height = min(
-        max(650, len(lane_order) * 30),
-        700
-    )
+    chart_height = 750  # Fixed across projects regardless of lane count
     fig.update_layout(
         title="Engineering Operations Scheduling Gantt Chart",
         legend_title_text="",
@@ -4138,7 +4211,7 @@ def show_detail(clickData, schedule_version):
                 html.Div(
                     f"{task} ({str(cluster) if str(cluster).lower().startswith('cluster') else 'Cluster ' + str(cluster)})" if pd.notna(cluster) and str(cluster).strip() not in ("", "nan", "None") else str(task),
                     style={
-                        "fontSize": "16px",
+                        "fontSize": "18px",
                         "fontWeight": "bold",
                         "color": "#111827",
                         "marginBottom": "2px"
@@ -4149,7 +4222,7 @@ def show_detail(clickData, schedule_version):
                 html.Div(
                     f"{category_icon.get(category,'')} {category}",
                     style={
-                        "fontSize": "11px",
+                        "fontSize": "13px",
                         "color": "#6b7280"
                     }
                 ),
@@ -4158,7 +4231,7 @@ def show_detail(clickData, schedule_version):
                 html.Div(
                     note,
                     style={
-                        "fontSize": "9px",
+                        "fontSize": "12px",
                         "color": "#9ca3af",
                         "marginTop": "2px",
                         "fontStyle": "italic"
@@ -4181,7 +4254,8 @@ def show_detail(clickData, schedule_version):
                 ),
                 html.Span(date_str)
             ], style={
-                "fontSize": "13px",
+                "fontSize": "14px",
+                "whiteSpace": "nowrap",
                 "marginBottom": "8px"
             }),
             # Progress
@@ -4201,7 +4275,7 @@ def show_detail(clickData, schedule_version):
                     }
                 )
             ], style={
-                "fontSize": "13px"
+                "fontSize": "14px"
             })
 
         ], style={
@@ -4212,12 +4286,18 @@ def show_detail(clickData, schedule_version):
             "marginBottom": "12px"
         }),
         html.Hr(style={"margin":"5px 0"}),
+        ## Activity Duration — compact summary above Timeline
+        html.H4("Activity Duration", style={
+            "margin": "0 0 8px", "fontSize": "17px", "fontWeight": "bold", "color": "#111827"
+        }),
+        build_daily_activity_pie(date, schedule_version),
+        html.Hr(style={"margin": "10px 0"}),
         ##Timeline 區塊標題
         html.H4(
             "Timeline",
             style={
                 "margin": "0 0 8px 0",
-                "fontSize": "15px",
+                "fontSize": "17px",
                 "fontWeight": "bold",
                 "color": "#111827"
             }
@@ -4237,7 +4317,8 @@ def show_detail(clickData, schedule_version):
                 "backgroundColor": "white",
                 "whiteSpace": "nowrap"
             }
-        )
+        ),
+
     ])
 #%%windy-update-status
 # 每 5 分鐘檢查一次 PostgreSQL 的最新 Windy 資料時間。
@@ -4566,21 +4647,21 @@ print(f"[STARTUP] Python startup total: {_STARTUP_READY_SECONDS:.3f} s", flush=T
 
 #%%Run server
 #render佈署
-if __name__ == "__main__":
-    app.run(
-        debug=False,
-        host="0.0.0.0",
-        port=8050
-    )
+# if __name__ == "__main__":
+#     app.run(
+#         debug=False,
+#         host="0.0.0.0",
+#         port=8050
+#     )
 
 #本機測試
-# server = app.server
-# if __name__ == "__main__":
-#    app.run(
-#        debug=True,
-#        host="127.0.0.1",
-#        port=8050
-#    )    
+server = app.server
+if __name__ == "__main__":
+   app.run(
+       debug=True,
+       host="127.0.0.1",
+       port=8050
+   )    
     
     
 #http://127.0.0.1:8050/

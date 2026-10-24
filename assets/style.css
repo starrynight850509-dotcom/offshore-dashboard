@@ -341,3 +341,27 @@ body {background:var(--ocean-bg);margin:0;}
   width: 0;
   height: 0;
 }
+
+/* Jump to Date — tighter 26px control (Dash 3) */
+#detail-panel #date-picker-wrapper.dash-datepicker-input-wrapper,
+#detail-panel #date-picker-wrapper .dash-datepicker-content {
+  height: 26px !important;
+  min-height: 26px !important;
+  max-height: 26px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+#detail-panel #date-picker-wrapper.dash-datepicker-input-wrapper {
+  display: flex !important;
+  align-items: center !important;
+}
+#detail-panel #date-picker-wrapper input {
+  font-size: 13px !important;
+  height: 24px !important;
+  min-height: 0 !important;
+  line-height: 20px !important;
+  padding: 0 8px !important;
+}
+#detail-panel #date-picker-wrapper input::placeholder { font-size: 13px !important; }
+#detail-panel #date-picker-wrapper button { align-self: center !important; padding-top: 0 !important; padding-bottom: 0 !important; }
