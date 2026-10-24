@@ -1,4 +1,4 @@
-name: Render Billing Monitor v1.4
+name: Render Billing Monitor v1.5
 
 on:
   schedule:
@@ -228,6 +228,7 @@ jobs:
           if status == 200 and isinstance(series, list):
               diagnostics = []
               source_groups = collections.defaultdict(set)
+              observations_by_source = collections.defaultdict(dict)
               source_timestamp_groups = collections.defaultdict(set)
               for index, item in enumerate(series):
                   info = {'series_index': index, 'status': 'UNEXPECTED_SHAPE'}
@@ -273,6 +274,9 @@ jobs:
                           continue
                       observations.append((timestamp, float(value)))
                   observations.sort(key=lambda pair: pair[0])
+                  if info['unit'] == 'mb' and source in ('total', 'nat', 'http'):
+                      for ts, val in observations:
+                          observations_by_source[source][ts] = val
                   for timestamp, _ in observations:
                       source_timestamp_groups[timestamp.isoformat()].add(source)
                   times = [t for t, _ in observations]
@@ -310,6 +314,48 @@ jobs:
               breakdown['timestamps_shared_across_sources'] = sum(
                   len(sources) > 1 for sources in source_timestamp_groups.values()
               )
+              # Diagnostic comparison at identical timestamps only.
+              total_points = observations_by_source.get('total', {})
+              nat_points = observations_by_source.get('nat', {})
+              http_points = observations_by_source.get('http', {})
+              aligned = sorted(set(total_points) & set(nat_points) & set(http_points))
+              diffs = [total_points[t] - nat_points[t] - http_points[t] for t in aligned]
+              abs_diffs = [abs(d) for d in diffs]
+              tolerance_mb = 0.000001
+              breakdown['source_additivity_check'] = {
+                  'aligned_timestamp_count': len(aligned),
+                  'within_tolerance_count': sum(d <= tolerance_mb for d in abs_diffs),
+                  'tolerance_mb': tolerance_mb,
+                  'max_absolute_difference_mb': max(abs_diffs) if abs_diffs else None,
+                  'mean_absolute_difference_mb': statistics.mean(abs_diffs) if abs_diffs else None,
+                  'verified_for_all_timestamps': False,
+                  'reason': 'Checks only timestamps present in all three series; API semantics remain unverified',
+              }
+              # Explicitly experimental: not the Render Billing Usage figure.
+              # Compare the total-series sum against the displayed 5 GB quota.
+              # 5 GB decimal convention is a provisional assumption, not a verified Render conversion.
+              quota_mb = 5000.0
+              eligible = (breakdown.get('units') == ['mb']
+                          and len(source_groups.get('total', [])) == 1
+                          and all(v >= 0 for v in total_points.values())
+                          and len(total_points) > 0)
+              experimental_sum = sum(total_points.values()) if eligible else None
+              breakdown['experimental_bandwidth_goal'] = {
+                  'status': 'EXPERIMENTAL' if eligible else 'UNAVAILABLE',
+                  'source': 'total',
+                  'observed_point_count': len(total_points),
+                  'provisional_quota_gb': 5,
+                  'provisional_quota_mb': quota_mb,
+                  'assumed_conversion': '1 GB = 1000 MB (unverified)',
+                  'observed_values_sum_mb': experimental_sum,
+                  'provisional_used_percent': round(experimental_sum / quota_mb * 100, 4) if eligible else None,
+                  'provisional_remaining_mb': max(0, quota_mb - experimental_sum) if eligible else None,
+                  'official_billing_equivalence': 'UNVERIFIED',
+                  'time_bucket_semantics': 'UNVERIFIED',
+                  'is_billing_total': False,
+                  'is_alert_eligible': False,
+                  'warning': 'Summed sampled metrics may omit buckets or misrepresent billed bandwidth',
+              }
               breakdown['aggregation_assessment'] = {
                   'metric_unit': 'mb' if breakdown.get('units') == ['mb'] else 'MIXED_OR_UNKNOWN',
                   'sample_behavior': 'NON_MONOTONIC_OBSERVATIONS' if any(
@@ -331,6 +377,8 @@ jobs:
           print('Structure:', {k: breakdown[k] for k in ('root_type', 'root_length', 'response_keys', 'field_types', 'element_types', 'sample_keys', 'sample_field_types') if k in breakdown})
           print('Traffic sources:', json.dumps(breakdown.get('traffic_sources', {}), ensure_ascii=False, sort_keys=True))
           print('Timestamps shared across sources:', breakdown.get('timestamps_shared_across_sources'))
+          print('Source additivity check:', json.dumps(breakdown.get('source_additivity_check', {}), ensure_ascii=False, sort_keys=True))
+          print('Experimental bandwidth goal:', json.dumps(breakdown.get('experimental_bandwidth_goal', {}), ensure_ascii=False, sort_keys=True))
           print('Aggregation assessment:', json.dumps(breakdown.get('aggregation_assessment', {}), ensure_ascii=False, sort_keys=True))
           for item in breakdown.get('series_diagnostics', []):
               print('Series diagnostics:', json.dumps(item, ensure_ascii=False, sort_keys=True))
